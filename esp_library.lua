@@ -53,6 +53,12 @@ local skeleton_bones = {
     { "LowerTorso", "RightUpperLeg" }, { "RightUpperLeg", "RightLowerLeg" }, { "RightLowerLeg", "RightFoot" },
 }
 
+local skeleton_bones_r6 = {
+    { "Head", "Torso" },
+    { "Torso", "Left Arm" }, { "Torso", "Right Arm" },
+    { "Torso", "Left Leg" }, { "Torso", "Right Leg" },
+}
+
 local BODY_PARTS = {
     "Head", "UpperTorso", "LowerTorso",
     "LeftUpperArm", "LeftLowerArm", "LeftHand",
@@ -95,11 +101,19 @@ local DEFAULT_STYLE = {
 
     skeleton = { enabled = false, color = Color3.fromRGB(255,255,255), thickness = 1 },
 
+    status_colors = {
+        Friend = Color3.fromRGB(90, 220, 120),
+        Priority = Color3.fromRGB(255, 80, 80),
+    },
+
     chams = {
         enabled = false,
         hidden_color = Color3.fromRGB(152, 188, 255),
         hidden_transparency = 0.5,
         visible_color = Color3.fromRGB(152, 188, 255),
+        glow = false,
+        glow_amount = 4.8,
+        glow_shader = "None",
     },
 
     visible_color = nil,
@@ -261,6 +275,8 @@ function esp:_create_entry(subject, is_npc)
         adornments = {},
         chams_model = nil,
         chams_conns = nil,
+        chams_glow = nil,
+        glow_mats = nil,
         arrow_alpha = 0,
         death_at = nil,
         last_hp = 100,
@@ -381,6 +397,18 @@ function esp:_ensure_part_adorns(entry, part, glow_target, main_color, main_tran
 end
 
 function esp:_clear_chams(entry)
+    if entry.glow_mats then
+        for part, old_mat in pairs(entry.glow_mats) do
+            if part and part.Parent then
+                pcall(function() part.Material = old_mat end)
+            end
+        end
+        entry.glow_mats = nil
+    end
+    if entry.chams_glow then
+        pcall(function() entry.chams_glow:Destroy() end)
+        entry.chams_glow = nil
+    end
     if entry.chams_conns then
         for _, c in ipairs(entry.chams_conns) do if c then c:Disconnect() end end
         entry.chams_conns = nil
@@ -401,6 +429,58 @@ function esp:_apply_chams(entry, model)
     if not ch.enabled then
         self:_clear_chams(entry)
         return
+    end
+
+    if ch.glow then
+        for part, pair in pairs(entry.adornments or {}) do
+            for _, a in ipairs(pair) do
+                if a and a.Parent then a:Destroy() end
+            end
+            entry.adornments[part] = nil
+        end
+        local hl = entry.chams_glow
+        if typeof(hl) ~= "Instance" or not hl.Parent then
+            hl = Instance.new("Highlight")
+            hl.Name = "Shade"
+            hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+            hl.OutlineTransparency = 1
+            hl.Parent = model
+            entry.chams_glow = hl
+        end
+        hl.Adornee = model
+        hl.FillColor = ch.hidden_color
+        hl.FillTransparency = -(tonumber(ch.glow_amount) or 4.8)
+
+        local mat = ch.glow_shader
+        if mat and mat ~= "None" then
+            local target = Enum.Material[mat]
+            if target then
+                entry.glow_mats = entry.glow_mats or {}
+                for _, d in ipairs(model:GetDescendants()) do
+                    if is_body_part(d) and d.Material ~= target then
+                        if entry.glow_mats[d] == nil then
+                            entry.glow_mats[d] = d.Material
+                        end
+                        pcall(function() d.Material = target end)
+                    end
+                end
+            end
+        elseif entry.glow_mats then
+            for part, old_mat in pairs(entry.glow_mats) do
+                if part and part.Parent then
+                    pcall(function() part.Material = old_mat end)
+                end
+            end
+            entry.glow_mats = nil
+        end
+
+        entry.chams_model = model
+        return
+    end
+
+    if entry.chams_glow then
+        pcall(function() entry.chams_glow:Destroy() end)
+        entry.chams_glow = nil
     end
     entry.adornments = entry.adornments or {}
     local main_color = ch.hidden_color
@@ -643,10 +723,21 @@ function esp:_draw_text_stack(entry, pos, sz, model, hum, dist, is_visible, alph
 
     if self.style.name.enabled then
         local n = entry.objs.name
-        n.Text = entry.is_npc and model.Name or entry.subject.Name
+        local label = entry.is_npc and model.Name or entry.subject.Name
+        local tag_color = nil
+
+        if not entry.is_npc and self._status_fn then
+            local ok, tag = pcall(self._status_fn, entry.subject)
+            if ok and tag and tag ~= "Neutral" then
+                label = "[" .. tag .. "] " .. label
+                tag_color = self.style.status_colors[tag]
+            end
+        end
+
+        n.Text = label
         n.Size = self.style.name.size
         n.Font = self.style.name.font
-        n.Color = self:_get_color(self.style.name.color, is_visible, false)
+        n.Color = tag_color or self:_get_color(self.style.name.color, is_visible, false)
         n.Outline = self.style.name.outline
         n.OutlineColor = self.style.name.outline_color
         n.Transparency = trans
@@ -1009,8 +1100,15 @@ end
 function esp:_draw_skeleton(entry, model, alpha)
     self:_ensure_skel(entry)
     if not self.style.skeleton.enabled then return end
-    local trans = 1 - (alpha or 1)
-    for i, pair in ipairs(skeleton_bones) do
+    local trans = alpha or 1
+    local bones = skeleton_bones
+    if not model:FindFirstChild("UpperTorso") and model:FindFirstChild("Torso") then
+        bones = skeleton_bones_r6
+    end
+    for i = #bones + 1, #entry.skel_lines do
+        entry.skel_lines[i].Visible = false
+    end
+    for i, pair in ipairs(bones) do
         local ln = entry.skel_lines[i]
         if ln then
             local a = model:FindFirstChild(pair[1])
@@ -1023,7 +1121,7 @@ function esp:_draw_skeleton(entry, model, alpha)
                     ln.To = Vector2.new(sb.X, sb.Y)
                     ln.Thickness = self.style.skeleton.thickness
                     ln.Color = self.style.skeleton.color
-                    ln.Transparency = 1 - (alpha or 1)
+                    ln.Transparency = trans
                     ln.Visible = true
                 else
                     ln.Visible = false
@@ -1249,6 +1347,10 @@ function esp:Remove(subject)
 end
 
 function esp:GetEntry(subject) return self._entries[subject] end
+
+function esp:SetStatusResolver(fn)
+    self._status_fn = fn
+end
 
 function esp:UpdateStyle(patch)
     if not patch then return end
