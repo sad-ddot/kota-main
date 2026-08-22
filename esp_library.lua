@@ -570,8 +570,13 @@ function esp:_project_corners(cf, size)
             if sp.Y > max_y then max_y = sp.Y end
         end
     end
-    if front_count == 0 or not any_on then return nil end
+    if front_count < 8 or not any_on then return nil end
     local vp = cam.ViewportSize
+    local raw_w = max_x - min_x
+    local raw_h = max_y - min_y
+    if raw_w < 1 or raw_h < 1 then return nil end
+    if raw_w > vp.X * 1.35 or raw_h > vp.Y * 1.35 then return nil end
+    if raw_w > raw_h * 4 then return nil end
     local margin = 64
     min_x = math.clamp(min_x, -margin, vp.X + margin)
     min_y = math.clamp(min_y, -margin, vp.Y + margin)
@@ -580,7 +585,6 @@ function esp:_project_corners(cf, size)
     local width = max_x - min_x
     local height = max_y - min_y
     if width < 1 or height < 1 then return nil end
-    if width > vp.X * 1.35 or height > vp.Y * 1.35 then return nil end
 
     local depth = 0
     pcall(function() depth = (cf.Position - cam.CFrame.Position).Magnitude end)
@@ -741,7 +745,12 @@ function esp:_draw_text_stack(entry, pos, sz, model, hum, dist, is_visible, alph
         n.Outline = self.style.name.outline
         n.OutlineColor = self.style.name.outline_color
         n.Transparency = trans
-        push(valid_slot(self.style.name.slot, "top-center"), { kind = "text", d = n, w = 0, h = n.Size, ord = self.style.name.order or 1 })
+        local nh = n.Size
+        pcall(function()
+            local b = n.TextBounds
+            if b and b.Y and b.Y > nh then nh = b.Y end
+        end)
+        push(valid_slot(self.style.name.slot, "top-center"), { kind = "text", d = n, w = 0, h = nh, ord = self.style.name.order or 1 })
     else
         entry.objs.name.Visible = false
     end
@@ -891,7 +900,7 @@ function esp:_layout_slots(pos, sz, groups)
                         it.d.Position = Vector2.new(base_x - w, y)
                     else
                         it.d.Center = true
-                        it.d.Position = Vector2.new(base_x, y)
+                        it.d.Position = Vector2.new(math.floor(base_x + 0.5), math.floor(y + 0.5))
                     end
                     it.d.Visible = true
                 elseif it.kind == "icon" then
@@ -910,7 +919,7 @@ function esp:_layout_slots(pos, sz, groups)
                         it.d.Position = Vector2.new(base_x - w, y)
                     else
                         it.d.Center = true
-                        it.d.Position = Vector2.new(base_x, y)
+                        it.d.Position = Vector2.new(math.floor(base_x + 0.5), math.floor(y + 0.5))
                     end
                     it.d.Visible = true
                 elseif it.kind == "icon" then
@@ -1295,6 +1304,18 @@ function esp:_update_entry(entry, dt)
 
     local ok, cf, size = pcall(model.GetBoundingBox, model)
     if not ok or not size then self:_hide_entry(entry); return end
+
+    if size.X > 12 or size.Z > 12 or size.Y > 14 then
+        local head = model:FindFirstChild("Head")
+        if head then
+            local mid = (head.Position + hrp.Position) * 0.5
+            cf = CFrame.new(mid)
+            size = Vector3.new(4, math.abs(head.Position.Y - hrp.Position.Y) * 2 + 3, 4)
+        else
+            size = Vector3.new(math.min(size.X, 6), math.min(size.Y, 7), math.min(size.Z, 6))
+        end
+    end
+
     local pos, sz = self:_project_corners(cf, size)
     if not pos then
         self:_hide_entry(entry)
