@@ -5433,6 +5433,8 @@ local Library do
 
             Page.Active = Bool
 
+            Library:CloseDropdowns()
+            Library:CloseKeybinds()
             if Bool then Library:CloseColorpicker(true) end
 
             if Bool then
@@ -5697,6 +5699,8 @@ local Library do
 
             SubPage.Active = Bool
 
+            Library:CloseDropdowns()
+            Library:CloseKeybinds()
             if Bool then Library:CloseColorpicker(true) end
 
             local Tint = SubPage.Name and "TextColor3" or "ImageColor3"
@@ -7249,8 +7253,20 @@ local Library do
 
             if Tall > 0 and Below + Tall > Screen.Y - 8 then
                 local Above = Spot.Y - Root.Y - Tall - 4
-                if Above >= 8 then Below = Above end
+
+                if Above >= 8 then
+                    Below = Above
+                else
+                    Below = Screen.Y - 8 - Tall
+                    if Below < 8 then Below = 8 end
+                end
             end
+
+            local Wide = Panel.AbsoluteSize.X
+            if Wide > 0 and Left + Wide > Screen.X - 8 then
+                Left = Screen.X - 8 - Wide
+            end
+            if Left < 8 then Left = 8 end
 
             Panel.Position = UDim2New(0, Left, 0, Below)
 
