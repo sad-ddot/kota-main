@@ -777,17 +777,33 @@ local Library do
     end
 
     Library.DeleteConfig = function(self, Config)
-        if isfile(Library.Folders.Configs .. "/" .. Config) then
-            delfile(Library.Folders.Configs .. "/" .. Config)
-            Library:Notification("Deleted config " .. Config .. ".json", 5, Color3.fromRGB(0, 255, 0))
-        end
+        local Name = StringGSub(tostring(Config or ""), "%.json$", "")
+        if Name == "" then return false end
+
+        local Path = Library.Folders.Configs .. "/" .. Name .. ".json"
+        if not isfile(Path) then return false end
+
+        local Ok = pcall(delfile, Path)
+        if not Ok then return false end
+
+        Library:Notification("Deleted config " .. Name .. ".json", 5, Color3.fromRGB(0, 255, 0))
+        return true
     end
 
     Library.SaveConfig = function(self, Config)
-        if isfile(Library.Folders.Directory .. "/" .. Library.Folders.Configs .. "/" .. Config .. ".json") then
-            writefile(Library.Folders.Directory .. "/" .. Library.Folders.Configs .. "/" .. Config .. ".json", Library:GetConfig())
-            Library:Notification("Saved config " .. Config .. ".json", 5, Color3.fromRGB(0, 255, 0))
+        local Name = StringGSub(tostring(Config or ""), "%.json$", "")
+        if Name == "" then return false end
+
+        local Path = Library.Folders.Configs .. "/" .. Name .. ".json"
+        local Ok = pcall(writefile, Path, Library:GetConfig())
+
+        if not Ok then
+            Library:Notification("could not write " .. Name .. ".json", 5, FromRGB(255, 0, 0))
+            return false
         end
+
+        Library:Notification("Saved config " .. Name .. ".json", 5, Color3.fromRGB(0, 255, 0))
+        return true
     end
 
     Library.RefreshConfigsList = function(self, Element)
@@ -7166,19 +7182,53 @@ local Library do
         end
 
         function Dropdown:Remove(Option)
-            if Dropdown.Options[Option] then
-                Dropdown.Options[Option].Button:Clean()
+            local Data = Dropdown.Options[Option]
+            if not Data then return false end
+
+            pcall(function() Data.Button:Clean() end)
+            Dropdown.Options[Option] = nil
+
+            local Index = TableFind(Dropdown.Items, Option)
+            if Index then TableRemove(Dropdown.Items, Index) end
+
+            if Dropdown.Value == Option then
+                Dropdown.Value = Dropdown.Multi and { } or nil
             end
+
+            return true
         end
 
         function Dropdown:Refresh(List)
-            for Index, Value in Dropdown.Options do
-                Dropdown:Remove(Value.Name)
-            end
+            local Names = { }
+            for Key in Dropdown.Options do Names[#Names + 1] = Key end
+            for _, Key in Names do Dropdown:Remove(Key) end
 
-            for Index, Value in List do
+            Dropdown.Options = { }
+            Dropdown.Items = { }
+
+            local Kept = Dropdown.Value
+
+            for _, Value in List or { } do
+                Dropdown.Items[#Dropdown.Items + 1] = Value
                 Dropdown:Add(Value)
             end
+
+            if type(Kept) == "string" and Dropdown.Options[Kept] then
+                Dropdown:Set(Kept)
+            else
+                Dropdown.Value = Dropdown.Multi and { } or nil
+                Items["Value"].Instance.Text = "---"
+            end
+
+            if Dropdown.IsOpen then Dropdown:Reposition() end
+        end
+
+        function Dropdown:SetItems(List)
+            return Dropdown:Refresh(List)
+        end
+
+        function Dropdown:SetValues(List)
+            return Dropdown:Refresh(List)
         end
 
         local Debounce = false
@@ -7213,7 +7263,7 @@ local Library do
             local FadeTime = Dropdown.Window.FadeSpeed or Library.Tween.Time
             local TurnToken = Library:NextTurn(Dropdown)
 
-            if Debounce and Bool then
+            if Debounce and Bool and Dropdown.IsOpen then
                 return
             end
 
@@ -7306,10 +7356,10 @@ local Library do
             end
 
             task.delay(FadeTime, function()
-                if not Library:IsTurn(Dropdown, TurnToken) then return end
                 Debounce = false
-                Items["OptionHolder"].Instance.Visible = Bool
-                Items["OptionHolder"].Instance.ZIndex = Bool and 500 or 1
+                if not Library:IsTurn(Dropdown, TurnToken) then return end
+                Items["OptionHolder"].Instance.Visible = Dropdown.IsOpen
+                Items["OptionHolder"].Instance.ZIndex = Dropdown.IsOpen and 500 or 1
             end)
         end
 
