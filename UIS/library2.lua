@@ -409,6 +409,7 @@ local Library do
             local Set = function(Input)
                 local DragDelta = Input.Position - DragStart
                 Gui.Position = UDim2New(StartPosition.X.Scale, StartPosition.X.Offset + DragDelta.X, StartPosition.Y.Scale, StartPosition.Y.Offset + DragDelta.Y)
+                Library:RepositionOpen()
             end
 
             self:Connect("InputBegan", function(Input)
@@ -1141,6 +1142,20 @@ local Library do
         for Item in self.OpenKeybinds do
             if Item.IsOpen then
                 pcall(function() Item:SetOpen(false) end)
+            end
+        end
+    end
+
+    Library.RepositionOpen = function(self)
+        for Item in self.OpenDropdowns do
+            if Item.IsOpen and Item.Reposition then
+                pcall(function() Item:Reposition() end)
+            end
+        end
+
+        for Item in self.OpenKeybinds do
+            if Item.IsOpen and Item.Reposition then
+                pcall(function() Item:Reposition() end)
             end
         end
     end
@@ -6058,6 +6073,8 @@ local Library do
 
                 NewSection.Active = Bool
 
+                Library:CloseDropdowns()
+                Library:CloseKeybinds()
                 if Bool then Library:CloseColorpicker(true) end
 
                 if Bool then
