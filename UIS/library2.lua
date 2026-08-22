@@ -11,6 +11,9 @@ local Library do
     local HttpService = game:GetService("HttpService")
     local TweenService = game:GetService("TweenService")
     local RunService = game:GetService("RunService")
+    local GuiService = game:GetService("GuiService")
+    local ReplicatedStorage = game:GetService("ReplicatedStorage")
+    local Stats = game:GetService("Stats")
     local CoreGui = cloneref and cloneref(game:GetService("CoreGui")) or game:GetService("CoreGui")
 
     gethui = gethui or function()
@@ -691,9 +694,10 @@ local Library do
             Connection = nil
         }
 
-        Library:Thread(function()
-            NewConnection.Connection = Event:Connect(Callback)
-        end)
+        if Event then
+            local ok, conn = pcall(function() return Event:Connect(Callback) end)
+            if ok then NewConnection.Connection = conn end
+        end
 
         TableInsert(self.Connections, NewConnection)
         return NewConnection
@@ -1092,7 +1096,7 @@ local Library do
 
                 local Spot = UserInputService:GetMouseLocation()
                 local Inset = Vector2New(0, 0)
-                pcall(function() Inset = game:GetService("GuiService"):GetGuiInset() end)
+                pcall(function() Inset = GuiService:GetGuiInset() end)
 
                 Box.Instance.Position = UDim2New(0, Spot.X - Inset.X + 14, 0, Spot.Y - Inset.Y + 16)
 
@@ -1209,7 +1213,7 @@ local Library do
 
         local Cursor = UserInputService:GetMouseLocation()
         local Inset = Vector2New(0, 0)
-        pcall(function() Inset = game:GetService("GuiService"):GetGuiInset() end)
+        pcall(function() Inset = GuiService:GetGuiInset() end)
         Cursor = Vector2New(Cursor.X - Inset.X, Cursor.Y - Inset.Y)
 
         local Pos = Frame.AbsolutePosition
@@ -1792,7 +1796,7 @@ local Library do
             Visible = false
         }
 
-        local ReplicatedStorage = game:GetService("ReplicatedStorage")
+        local ReplicatedStorage = ReplicatedStorage
 
         local Items = { } do
             Items["HUD"] = Instances:Create("Frame", {
@@ -2233,7 +2237,7 @@ local Library do
             Visible = false
         }
 
-        local ReplicatedStorage = game:GetService("ReplicatedStorage")
+        local ReplicatedStorage = ReplicatedStorage
         local StatusColors = {
             Friend = FromRGB(120, 220, 160),
             Priority = FromRGB(255, 140, 120),
@@ -3356,7 +3360,7 @@ local Library do
             Help = "print network ping",
             Callback = function(Args, Console)
                 local Ok, Value = pcall(function()
-                    local Stats = game:GetService("Stats")
+                    local Stats = Stats
                     return Stats.Network.ServerStatsItem["Data Ping"]:GetValue()
                 end)
                 if Ok and Value then
@@ -6801,7 +6805,7 @@ local Library do
 
             local Cursor = UserInputService:GetMouseLocation()
             local Inset = Vector2New(0, 0)
-            pcall(function() Inset = game:GetService("GuiService"):GetGuiInset() end)
+            pcall(function() Inset = GuiService:GetGuiInset() end)
 
             local Offset = (Cursor.X - Inset.X) - Track.AbsolutePosition.X
             local Ratio = MathClamp(Offset / Width, 0, 1)
