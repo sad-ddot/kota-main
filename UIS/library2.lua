@@ -2420,6 +2420,10 @@ local Library do
             Library:FadeWidget(Items["HUD"], HUD.Visible)
         end
 
+        local HealthFillInst = Items["HealthFill"].Instance
+        local HealthTextInst = Items["HealthText"].Instance
+        local EmptySize = UDim2New(0, 0, 1, 0)
+
         Library:Connect(RunService.Heartbeat, function()
             if not HUD.Visible then return end
 
@@ -2433,8 +2437,8 @@ local Library do
             local Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
 
             if not Humanoid then
-                Items["HealthFill"].Instance.Size = UDim2New(0, 0, 1, 0)
-                Items["HealthText"].Instance.Text = ""
+                HealthFillInst.Size = EmptySize
+                HealthTextInst.Text = ""
                 return
             end
 
@@ -2442,8 +2446,8 @@ local Library do
             local MaxHealth = Humanoid.MaxHealth
             local Ratio = MaxHealth > 0 and MathClamp(Health / MaxHealth, 0, 1) or 0
 
-            Items["HealthFill"].Instance.Size = UDim2New(Ratio, 0, 1, 0)
-            Items["HealthText"].Instance.Text = StringFormat("%d/%d", MathFloor(Health + 0.5), MathFloor(MaxHealth + 0.5))
+            HealthFillInst.Size = UDim2New(Ratio, 0, 1, 0)
+            HealthTextInst.Text = StringFormat("%d/%d", MathFloor(Health + 0.5), MathFloor(MaxHealth + 0.5))
         end)
 
         return HUD
@@ -5051,11 +5055,12 @@ local Library do
 
                 if not Keybind.Follow then
                     local WasX, WasY = -1, -1
+                    local Anchor = Items["KeyButton"].Instance
 
                     Keybind.Follow = Library:Connect(RunService.Heartbeat, function()
                         if not Keybind.IsOpen then return end
 
-                        local Spot = Items["KeyButton"].Instance.AbsolutePosition
+                        local Spot = Anchor.AbsolutePosition
                         if Spot.X == WasX and Spot.Y == WasY then return end
 
                         WasX, WasY = Spot.X, Spot.Y
@@ -7561,11 +7566,12 @@ local Library do
 
                 if not Dropdown.Follow then
                     local WasX, WasY = -1, -1
+                    local Anchor = Items["RealDropdown"].Instance
 
                     Dropdown.Follow = Library:Connect(RunService.Heartbeat, function()
                         if not Dropdown.IsOpen then return end
 
-                        local Spot = Items["RealDropdown"].Instance.AbsolutePosition
+                        local Spot = Anchor.AbsolutePosition
                         if Spot.X == WasX and Spot.Y == WasY then return end
 
                         WasX, WasY = Spot.X, Spot.Y
