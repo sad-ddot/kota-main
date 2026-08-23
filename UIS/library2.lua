@@ -1341,6 +1341,12 @@ local Library do
             Library:FadeWidget(Items["Watermark"], Bool)
         end
 
+        function Watermark:Set(Text)
+            if Items["Title"] and Items["Title"].Instance then
+                Items["Title"].Instance.Text = tostring(Text)
+            end
+        end
+
         return Watermark
     end
 
