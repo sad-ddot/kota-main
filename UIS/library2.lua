@@ -738,47 +738,58 @@ local Library do
     Library.GetConfig = function(self)
         local Config = { }
 
-        local Success, Result = Library:SafeCall(function()
-            for Index, Value in Library.Flags do
-                if type(Value) == "table" and Value.Class == "Keybind" then
-                    local k = Value.Key
-                    if k == nil or k == "" then k = "None" end
-                    local m = Value.Mode
-                    if m == nil or m == "" then m = "Toggle" end
-                    Config[Index] = {Key = tostring(k), Mode = m}
-                elseif type(Value) == "table" and Value.Class == "Colorpicker" then
-                    local hx = Value.HexValue
-                    if hx == nil or hx == "" then
-                        local col = Value.Color
-                        if typeof(col) == "Color3" then hx = col:ToHex() else hx = "FFFFFF" end
+        pcall(function()
+            for Index, Value in pairs(Library.Flags) do
+                local ok, packed = pcall(function()
+                    local t = type(Value)
+                    if t == "boolean" or t == "number" or t == "string" then
+                        return Value
                     end
-                    Config[Index] = {Color = "#" .. hx, Alpha = Value.Alpha or 0}
-                elseif type(Value) == "table" and Value.Key then
-                    Config[Index] = {Key = tostring(Value.Key), Mode = Value.Mode}
-                elseif type(Value) == "table" and Value.Color then
-                    Config[Index] = {Color = "#" .. tostring(Value.HexValue or ""), Alpha = Value.Alpha or 0}
-                elseif type(Value) == "boolean" or type(Value) == "number" or type(Value) == "string" then
-                    Config[Index] = Value
-                elseif type(Value) == "table" then
+                    if t ~= "table" then return nil end
+
+                    if Value.Class == "Keybind" then
+                        local k = Value.Key
+                        if k == nil or k == "" then k = "None" end
+                        local m = Value.Mode
+                        if m == nil or m == "" then m = "Toggle" end
+                        return { Key = tostring(k), Mode = tostring(m) }
+                    end
+
+                    if Value.Class == "Colorpicker" then
+                        local hx = Value.HexValue
+                        if hx == nil or hx == "" then
+                            local col = Value.Color
+                            if typeof(col) == "Color3" then hx = col:ToHex() else hx = "FFFFFF" end
+                        end
+                        return { Color = "#" .. tostring(hx), Alpha = tonumber(Value.Alpha) or 0 }
+                    end
+
+                    if Value.Key ~= nil then
+                        return { Key = tostring(Value.Key), Mode = tostring(Value.Mode or "Toggle") }
+                    end
+                    if Value.Color ~= nil then
+                        return { Color = "#" .. tostring(Value.HexValue or "FFFFFF"), Alpha = tonumber(Value.Alpha) or 0 }
+                    end
+
                     local clean = {}
                     for k, v in pairs(Value) do
-                        local tv = type(v)
-                        if tv == "boolean" or tv == "number" or tv == "string" then
+                        local kt = type(k)
+                        local vt = type(v)
+                        if (kt == "string" or kt == "number") and (vt == "boolean" or vt == "number" or vt == "string") then
                             clean[k] = v
                         end
                     end
-                    Config[Index] = clean
+                    return clean
+                end)
+                if ok and packed ~= nil then
+                    Config[Index] = packed
                 end
             end
         end)
 
-        if not Success then
-            return "{}"
-        end
-
         local OkEnc, Encoded = pcall(function() return HttpService:JSONEncode(Config) end)
-        if not OkEnc then return "{}" end
-        return Encoded
+        if OkEnc and type(Encoded) == "string" then return Encoded end
+        return "{}"
     end
 
     Library.LoadConfig = function(self, Config)
