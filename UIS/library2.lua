@@ -1763,13 +1763,11 @@ local Library do
             for _, row in Rows do
                 if row.Instance.Visible then count = count + 1 end
             end
-            if count > 0 then
-                Title.Instance.Text = "Moderators [" .. count .. "]"
-            else
-                Title.Instance.Text = "Moderators"
-            end
+            Title.Instance.Text = "Moderator (" .. count .. ")"
             Body.Instance.Visible = count > 0
         end
+
+        Title.Instance.Text = "Moderator (0)"
 
         function ModList:Add(Name, Role)
             local Row = Instances:Create("TextLabel", {
