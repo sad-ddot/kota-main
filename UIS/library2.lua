@@ -741,7 +741,11 @@ local Library do
         local Success, Result = Library:SafeCall(function()
             for Index, Value in Library.Flags do
                 if type(Value) == "table" and Value.Class == "Keybind" then
-                    Config[Index] = {Key = tostring(Value.Key), Mode = Value.Mode}
+                    local k = Value.Key
+                    if k == nil or k == "" then k = "None" end
+                    local m = Value.Mode
+                    if m == nil or m == "" then m = "Toggle" end
+                    Config[Index] = {Key = tostring(k), Mode = m}
                 elseif type(Value) == "table" and Value.Key then
                     Config[Index] = {Key = tostring(Value.Key), Mode = Value.Mode}
                 elseif type(Value) == "table" and Value.Color then
@@ -4556,7 +4560,7 @@ local Library do
             Class = "Keybind"
         }
 
-        Library.Flags[Data.Flag] = { }
+        Library.Flags[Data.Flag] = Keybind
 
         local KeyListItem
 
@@ -6401,7 +6405,7 @@ local Library do
         end
 
         function Toggle:Set(Bool)
-            Toggle.Value = Bool or not Toggle.Value
+            if Bool == nil then Toggle.Value = not Toggle.Value else Toggle.Value = Bool == true end
 
             Library.Flags[Toggle.Flag] = Toggle.Value
 
@@ -6501,9 +6505,7 @@ local Library do
             Library:Tooltip(Items["Toggle"], Tip)
         end
 
-        if Toggle.Default then
-            Toggle:Set(Toggle.Default)
-        end
+        Toggle:Set(Toggle.Default)
 
         Library.SetFlags[Toggle.Flag] = function(Value)
             Toggle:Set(Value)
@@ -7414,6 +7416,10 @@ local Library do
 
         if Dropdown.Default then
             Dropdown:Set(Dropdown.Default)
+        else
+            if Library.Flags[Dropdown.Flag] == nil then
+                Library.Flags[Dropdown.Flag] = Dropdown.Multi and {} or ""
+            end
         end
 
         Library.SetFlags[Dropdown.Flag] = function(Value)
@@ -7674,9 +7680,7 @@ local Library do
             Textbox:Set(Items["Inline"].Instance.Text)
         end)
 
-        if Textbox.Default then
-            Textbox:Set(Textbox.Default)
-        end
+        Textbox:Set(Textbox.Default or "")
 
         Library.SetFlags[Textbox.Flag] = function(Value)
             Textbox:Set(Value)
@@ -7938,6 +7942,10 @@ local Library do
 
         if Listbox.Default then
             Listbox:Set(Listbox.Default)
+        else
+            if Library.Flags[Listbox.Flag] == nil then
+                Library.Flags[Listbox.Flag] = Listbox.Multi and {} or ""
+            end
         end
 
         Library.SetFlags[Listbox.Flag] = function(Value)
