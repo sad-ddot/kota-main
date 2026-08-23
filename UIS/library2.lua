@@ -1662,6 +1662,181 @@ local Library do
         return KeybindList
     end
 
+    Library.ModeratorList = function(self)
+        local ModList = {}
+        self.ModList = ModList
+
+        local Root = Instances:Create("Frame", {
+            Parent = Library.Holder.Instance,
+            Name = "\0",
+            AnchorPoint = Vector2New(1, 0.5),
+            Position = UDim2New(1, -15, 0.5, 0),
+            Size = UDim2New(0, 0, 0, 18),
+            AutomaticSize = Enum.AutomaticSize.XY,
+            BackgroundColor3 = FromRGB(15, 15, 20),
+            BorderColor3 = FromRGB(10, 10, 10),
+            BorderSizePixel = 2,
+        })
+        Root:AddToTheme({BackgroundColor3 = "Background", BorderColor3 = "Border"})
+        Root:MakeDraggable()
+
+        Instances:Create("UIStroke", {
+            Parent = Root.Instance,
+            Name = "\0",
+            ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+            LineJoinMode = Enum.LineJoinMode.Miter,
+            Color = FromRGB(27, 27, 32),
+        }):AddToTheme({Color = "Outline"})
+
+        local AccentBar = Instances:Create("Frame", {
+            Parent = Root.Instance,
+            Name = "\0",
+            Position = UDim2New(0, -5, 0, -5),
+            Size = UDim2New(1, 10, 0, 2),
+            BackgroundColor3 = FromRGB(235, 157, 255),
+            BorderColor3 = FromRGB(0, 0, 0),
+            BorderSizePixel = 0,
+        })
+        AccentBar:AddToTheme({BackgroundColor3 = "Accent"})
+
+        Instances:Create("UIGradient", {
+            Parent = AccentBar.Instance,
+            Rotation = 90,
+            Color = RGBSequence{
+                RGBSequenceKeypoint(0, FromRGB(255, 255, 255)),
+                RGBSequenceKeypoint(1, FromRGB(65, 65, 65)),
+            },
+        })
+
+        Instances:Create("UIPadding", {
+            Parent = Root.Instance,
+            PaddingTop = UDimNew(0, 5),
+            PaddingBottom = UDimNew(0, 5),
+            PaddingLeft = UDimNew(0, 5),
+            PaddingRight = UDimNew(0, 5),
+        })
+
+        local Title = Instances:Create("TextLabel", {
+            Parent = Root.Instance,
+            Name = "\0",
+            FontFace = Library.Font,
+            TextSize = 12,
+            Text = "Moderators",
+            TextColor3 = FromRGB(215, 215, 215),
+            TextXAlignment = Enum.TextXAlignment.Left,
+            Position = UDim2New(0, 0, 0, -1),
+            Size = UDim2New(0, 120, 0, 15),
+            BackgroundTransparency = 1,
+            BackgroundColor3 = FromRGB(255, 255, 255),
+            BorderColor3 = FromRGB(0, 0, 0),
+            BorderSizePixel = 0,
+        })
+        Title:AddToTheme({TextColor3 = "Text"})
+
+        Instances:Create("UIStroke", {
+            Parent = Title.Instance,
+            Name = "\0",
+            LineJoinMode = Enum.LineJoinMode.Miter,
+        }):AddToTheme({Color = "Text Border"})
+
+        local Body = Instances:Create("Frame", {
+            Parent = Root.Instance,
+            Name = "\0",
+            Position = UDim2New(0, 5, 0, 19),
+            AutomaticSize = Enum.AutomaticSize.XY,
+            BackgroundTransparency = 1,
+            BackgroundColor3 = FromRGB(255, 255, 255),
+            BorderColor3 = FromRGB(0, 0, 0),
+            BorderSizePixel = 0,
+        })
+
+        Instances:Create("UIListLayout", {
+            Parent = Body.Instance,
+            Padding = UDimNew(0, 4),
+            SortOrder = Enum.SortOrder.LayoutOrder,
+        })
+
+        local Rows = {}
+
+        local function Refresh()
+            local count = 0
+            for _, row in Rows do
+                if row.Instance.Visible then count = count + 1 end
+            end
+            if count > 0 then
+                Title.Instance.Text = "Moderators [" .. count .. "]"
+            else
+                Title.Instance.Text = "Moderators"
+            end
+            Body.Instance.Visible = count > 0
+        end
+
+        function ModList:Add(Name, Role)
+            local Row = Instances:Create("TextLabel", {
+                Parent = Body.Instance,
+                Name = "\0",
+                FontFace = Library.Font,
+                TextSize = 12,
+                Text = Name .. " [" .. Role .. "]",
+                TextColor3 = FromRGB(215, 215, 215),
+                TextXAlignment = Enum.TextXAlignment.Left,
+                Size = UDim2New(0, 0, 0, 15),
+                AutomaticSize = Enum.AutomaticSize.X,
+                BackgroundTransparency = 1,
+                BackgroundColor3 = FromRGB(255, 255, 255),
+                BorderColor3 = FromRGB(0, 0, 0),
+                BorderSizePixel = 0,
+            })
+            Row:AddToTheme({TextColor3 = "Text"})
+
+            Instances:Create("UIStroke", {
+                Parent = Row.Instance,
+                Name = "\0",
+                LineJoinMode = Enum.LineJoinMode.Miter,
+            }):AddToTheme({Color = "Text Border"})
+
+            function Row:Set(NewName, NewRole)
+                Row.Instance.Text = NewName .. " [" .. NewRole .. "]"
+            end
+
+            function Row:SetVisible(State)
+                if Row.Instance.Visible == State then return end
+                Row.Instance.Visible = State
+                Refresh()
+            end
+
+            function Row:Remove()
+                for i, other in Rows do
+                    if other == Row then
+                        TableRemove(Rows, i)
+                        break
+                    end
+                end
+                Row:Clean()
+                Refresh()
+            end
+
+            Row.Instance.Visible = true
+            TableInsert(Rows, Row)
+            Refresh()
+            return Row
+        end
+
+        function ModList:Clear()
+            for _, row in Rows do
+                pcall(function() row:Clean() end)
+            end
+            table.clear(Rows)
+            Refresh()
+        end
+
+        function ModList:SetVisibility(State)
+            Library:FadeWidget(Root, State)
+        end
+
+        return ModList
+    end
+
     Library.Notify = function(self, Title, Text, Duration)
         if Text == nil then
             return self:Notification(tostring(Title), Duration or 5)
