@@ -53,12 +53,6 @@ local skeleton_bones = {
     { "LowerTorso", "RightUpperLeg" }, { "RightUpperLeg", "RightLowerLeg" }, { "RightLowerLeg", "RightFoot" },
 }
 
-local skeleton_bones_r6 = {
-    { "Head", "Torso" },
-    { "Torso", "Left Arm" }, { "Torso", "Right Arm" },
-    { "Torso", "Left Leg" }, { "Torso", "Right Leg" },
-}
-
 local BODY_PARTS = {
     "Head", "UpperTorso", "LowerTorso",
     "LeftUpperArm", "LeftLowerArm", "LeftHand",
@@ -101,19 +95,11 @@ local DEFAULT_STYLE = {
 
     skeleton = { enabled = false, color = Color3.fromRGB(255,255,255), thickness = 1 },
 
-    status_colors = {
-        Friend = Color3.fromRGB(90, 220, 120),
-        Priority = Color3.fromRGB(255, 80, 80),
-    },
-
     chams = {
         enabled = false,
         hidden_color = Color3.fromRGB(152, 188, 255),
         hidden_transparency = 0.5,
         visible_color = Color3.fromRGB(152, 188, 255),
-        glow = false,
-        glow_amount = 4.8,
-        glow_shader = "None",
     },
 
     visible_color = nil,
@@ -275,8 +261,6 @@ function esp:_create_entry(subject, is_npc)
         adornments = {},
         chams_model = nil,
         chams_conns = nil,
-        chams_glow = nil,
-        glow_mats = nil,
         arrow_alpha = 0,
         death_at = nil,
         last_hp = 100,
@@ -397,18 +381,6 @@ function esp:_ensure_part_adorns(entry, part, glow_target, main_color, main_tran
 end
 
 function esp:_clear_chams(entry)
-    if entry.glow_mats then
-        for part, old_mat in pairs(entry.glow_mats) do
-            if part and part.Parent then
-                pcall(function() part.Material = old_mat end)
-            end
-        end
-        entry.glow_mats = nil
-    end
-    if entry.chams_glow then
-        pcall(function() entry.chams_glow:Destroy() end)
-        entry.chams_glow = nil
-    end
     if entry.chams_conns then
         for _, c in ipairs(entry.chams_conns) do if c then c:Disconnect() end end
         entry.chams_conns = nil
@@ -429,58 +401,6 @@ function esp:_apply_chams(entry, model)
     if not ch.enabled then
         self:_clear_chams(entry)
         return
-    end
-
-    if ch.glow then
-        for part, pair in pairs(entry.adornments or {}) do
-            for _, a in ipairs(pair) do
-                if a and a.Parent then a:Destroy() end
-            end
-            entry.adornments[part] = nil
-        end
-        local hl = entry.chams_glow
-        if typeof(hl) ~= "Instance" or not hl.Parent then
-            hl = Instance.new("Highlight")
-            hl.Name = "Shade"
-            hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-            hl.OutlineTransparency = 1
-            hl.Parent = model
-            entry.chams_glow = hl
-        end
-        hl.Adornee = model
-        hl.FillColor = ch.hidden_color
-        hl.FillTransparency = -(tonumber(ch.glow_amount) or 4.8)
-
-        local mat = ch.glow_shader
-        if mat and mat ~= "None" then
-            local target = Enum.Material[mat]
-            if target then
-                entry.glow_mats = entry.glow_mats or {}
-                for _, d in ipairs(model:GetDescendants()) do
-                    if is_body_part(d) and d.Material ~= target then
-                        if entry.glow_mats[d] == nil then
-                            entry.glow_mats[d] = d.Material
-                        end
-                        pcall(function() d.Material = target end)
-                    end
-                end
-            end
-        elseif entry.glow_mats then
-            for part, old_mat in pairs(entry.glow_mats) do
-                if part and part.Parent then
-                    pcall(function() part.Material = old_mat end)
-                end
-            end
-            entry.glow_mats = nil
-        end
-
-        entry.chams_model = model
-        return
-    end
-
-    if entry.chams_glow then
-        pcall(function() entry.chams_glow:Destroy() end)
-        entry.chams_glow = nil
     end
     entry.adornments = entry.adornments or {}
     local main_color = ch.hidden_color
@@ -556,12 +476,17 @@ function esp:_project_corners(cf, size)
         cf * Vector3.new(-xs,  ys,  zs),
         cf * Vector3.new( xs,  ys,  zs),
     }
+    local vp = cam.ViewportSize
     local min_x, min_y, max_x, max_y = math.huge, math.huge, -math.huge, -math.huge
     local front_count = 0
     local any_on = false
+    local limit_x = vp.X * 4
+    local limit_y = vp.Y * 4
     for i = 1, 8 do
         local sp, on = wtvp(corners[i])
-        if sp.Z > 0.05 then
+        if sp.Z > 0.5 then
+            if sp.X ~= sp.X or sp.Y ~= sp.Y then return nil end
+            if math.abs(sp.X) > limit_x or math.abs(sp.Y) > limit_y then return nil end
             front_count = front_count + 1
             if on then any_on = true end
             if sp.X < min_x then min_x = sp.X end
@@ -570,13 +495,7 @@ function esp:_project_corners(cf, size)
             if sp.Y > max_y then max_y = sp.Y end
         end
     end
-    if front_count < 8 or not any_on then return nil end
-    local vp = cam.ViewportSize
-    local raw_w = max_x - min_x
-    local raw_h = max_y - min_y
-    if raw_w < 1 or raw_h < 1 then return nil end
-    if raw_w > vp.X * 1.35 or raw_h > vp.Y * 1.35 then return nil end
-    if raw_w > raw_h * 4 then return nil end
+    if front_count < 3 or not any_on then return nil end
     local margin = 64
     min_x = math.clamp(min_x, -margin, vp.X + margin)
     min_y = math.clamp(min_y, -margin, vp.Y + margin)
@@ -585,9 +504,9 @@ function esp:_project_corners(cf, size)
     local width = max_x - min_x
     local height = max_y - min_y
     if width < 1 or height < 1 then return nil end
+    if width > vp.X * 1.1 or height > vp.Y * 1.1 then return nil end
 
-    local depth = 0
-    pcall(function() depth = (cf.Position - cam.CFrame.Position).Magnitude end)
+    local depth = (cf.Position - cam.CFrame.Position).Magnitude
     depth = math.max(depth, 1)
     local min_width = math.clamp(320 / depth, 4, 10)
     local min_height = math.clamp(900 / depth, 10, 22)
@@ -727,30 +646,14 @@ function esp:_draw_text_stack(entry, pos, sz, model, hum, dist, is_visible, alph
 
     if self.style.name.enabled then
         local n = entry.objs.name
-        local label = entry.is_npc and model.Name or entry.subject.Name
-        local tag_color = nil
-
-        if not entry.is_npc and self._status_fn then
-            local ok, tag = pcall(self._status_fn, entry.subject)
-            if ok and tag and tag ~= "Neutral" then
-                label = "[" .. tag .. "] " .. label
-                tag_color = self.style.status_colors[tag]
-            end
-        end
-
-        n.Text = label
+        n.Text = entry.is_npc and model.Name or entry.subject.Name
         n.Size = self.style.name.size
         n.Font = self.style.name.font
-        n.Color = tag_color or self:_get_color(self.style.name.color, is_visible, false)
+        n.Color = self:_get_color(self.style.name.color, is_visible, false)
         n.Outline = self.style.name.outline
         n.OutlineColor = self.style.name.outline_color
         n.Transparency = trans
-        local nh = n.Size
-        pcall(function()
-            local b = n.TextBounds
-            if b and b.Y and b.Y > nh then nh = b.Y end
-        end)
-        push(valid_slot(self.style.name.slot, "top-center"), { kind = "text", d = n, w = 0, h = nh, ord = self.style.name.order or 1 })
+        push(valid_slot(self.style.name.slot, "top-center"), { kind = "text", d = n, w = 0, h = n.Size, ord = self.style.name.order or 1 })
     else
         entry.objs.name.Visible = false
     end
@@ -900,7 +803,7 @@ function esp:_layout_slots(pos, sz, groups)
                         it.d.Position = Vector2.new(base_x - w, y)
                     else
                         it.d.Center = true
-                        it.d.Position = Vector2.new(math.floor(base_x + 0.5), math.floor(y + 0.5))
+                        it.d.Position = Vector2.new(base_x, y)
                     end
                     it.d.Visible = true
                 elseif it.kind == "icon" then
@@ -919,7 +822,7 @@ function esp:_layout_slots(pos, sz, groups)
                         it.d.Position = Vector2.new(base_x - w, y)
                     else
                         it.d.Center = true
-                        it.d.Position = Vector2.new(math.floor(base_x + 0.5), math.floor(y + 0.5))
+                        it.d.Position = Vector2.new(base_x, y)
                     end
                     it.d.Visible = true
                 elseif it.kind == "icon" then
@@ -1109,15 +1012,8 @@ end
 function esp:_draw_skeleton(entry, model, alpha)
     self:_ensure_skel(entry)
     if not self.style.skeleton.enabled then return end
-    local trans = alpha or 1
-    local bones = skeleton_bones
-    if not model:FindFirstChild("UpperTorso") and model:FindFirstChild("Torso") then
-        bones = skeleton_bones_r6
-    end
-    for i = #bones + 1, #entry.skel_lines do
-        entry.skel_lines[i].Visible = false
-    end
-    for i, pair in ipairs(bones) do
+    local trans = 1 - (alpha or 1)
+    for i, pair in ipairs(skeleton_bones) do
         local ln = entry.skel_lines[i]
         if ln then
             local a = model:FindFirstChild(pair[1])
@@ -1130,7 +1026,7 @@ function esp:_draw_skeleton(entry, model, alpha)
                     ln.To = Vector2.new(sb.X, sb.Y)
                     ln.Thickness = self.style.skeleton.thickness
                     ln.Color = self.style.skeleton.color
-                    ln.Transparency = trans
+                    ln.Transparency = 1 - (alpha or 1)
                     ln.Visible = true
                 else
                     ln.Visible = false
@@ -1302,20 +1198,27 @@ function esp:_update_entry(entry, dt)
         return
     end
 
-    local ok, cf, size = pcall(model.GetBoundingBox, model)
-    if not ok or not size then self:_hide_entry(entry); return end
-
-    if size.X > 12 or size.Z > 12 or size.Y > 14 then
+    local cf, size
+    if hrp and hrp.Parent then
         local head = model:FindFirstChild("Head")
+        local center = hrp.Position
+        local height = 5
         if head then
-            local mid = (head.Position + hrp.Position) * 0.5
-            cf = CFrame.new(mid)
-            size = Vector3.new(4, math.abs(head.Position.Y - hrp.Position.Y) * 2 + 3, 4)
-        else
-            size = Vector3.new(math.min(size.X, 6), math.min(size.Y, 7), math.min(size.Z, 6))
+            local top = head.Position.Y + (head.Size and head.Size.Y * 0.5 or 0.6)
+            local bot = hrp.Position.Y - 3
+            height = math.max(top - bot, 4)
+            center = Vector3.new(hrp.Position.X, (top + bot) * 0.5, hrp.Position.Z)
         end
+        cf = CFrame.new(center)
+        size = Vector3.new(3, height, 3)
+    else
+        local ok, bb_cf, bb_size = pcall(model.GetBoundingBox, model)
+        if not ok or not bb_size then self:_hide_entry(entry); return end
+        if bb_size.X > 12 or bb_size.Y > 14 or bb_size.Z > 12 then
+            self:_hide_entry(entry); return
+        end
+        cf, size = bb_cf, bb_size
     end
-
     local pos, sz = self:_project_corners(cf, size)
     if not pos then
         self:_hide_entry(entry)
@@ -1368,10 +1271,6 @@ function esp:Remove(subject)
 end
 
 function esp:GetEntry(subject) return self._entries[subject] end
-
-function esp:SetStatusResolver(fn)
-    self._status_fn = fn
-end
 
 function esp:UpdateStyle(patch)
     if not patch then return end
