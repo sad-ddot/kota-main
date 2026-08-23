@@ -746,17 +746,39 @@ local Library do
                     local m = Value.Mode
                     if m == nil or m == "" then m = "Toggle" end
                     Config[Index] = {Key = tostring(k), Mode = m}
+                elseif type(Value) == "table" and Value.Class == "Colorpicker" then
+                    local hx = Value.HexValue
+                    if hx == nil or hx == "" then
+                        local col = Value.Color
+                        if typeof(col) == "Color3" then hx = col:ToHex() else hx = "FFFFFF" end
+                    end
+                    Config[Index] = {Color = "#" .. hx, Alpha = Value.Alpha or 0}
                 elseif type(Value) == "table" and Value.Key then
                     Config[Index] = {Key = tostring(Value.Key), Mode = Value.Mode}
                 elseif type(Value) == "table" and Value.Color then
-                    Config[Index] = {Color = "#" .. Value.HexValue, Alpha = Value.Alpha}
-                else
+                    Config[Index] = {Color = "#" .. tostring(Value.HexValue or ""), Alpha = Value.Alpha or 0}
+                elseif type(Value) == "boolean" or type(Value) == "number" or type(Value) == "string" then
                     Config[Index] = Value
+                elseif type(Value) == "table" then
+                    local clean = {}
+                    for k, v in pairs(Value) do
+                        local tv = type(v)
+                        if tv == "boolean" or tv == "number" or tv == "string" then
+                            clean[k] = v
+                        end
+                    end
+                    Config[Index] = clean
                 end
             end
         end)
 
-        return HttpService:JSONEncode(Config)
+        if not Success then
+            return "{}"
+        end
+
+        local OkEnc, Encoded = pcall(function() return HttpService:JSONEncode(Config) end)
+        if not OkEnc then return "{}" end
+        return Encoded
     end
 
     Library.LoadConfig = function(self, Config)
@@ -803,11 +825,17 @@ local Library do
         local Name = StringGSub(tostring(Config or ""), "%.json$", "")
         if Name == "" then return false end
 
+        pcall(function()
+            if not isfolder(Library.Folders.Directory) then makefolder(Library.Folders.Directory) end
+            if not isfolder(Library.Folders.Configs) then makefolder(Library.Folders.Configs) end
+        end)
+
+        local Body = Library:GetConfig()
         local Path = Library.Folders.Configs .. "/" .. Name .. ".json"
-        local Ok = pcall(writefile, Path, Library:GetConfig())
+        local Ok, Err = pcall(writefile, Path, Body)
 
         if not Ok then
-            Library:Notification("could not write " .. Name .. ".json", 5, FromRGB(255, 0, 0))
+            Library:Notification("could not write " .. Name .. ".json: " .. tostring(Err), 5, FromRGB(255, 0, 0))
             return false
         end
 
