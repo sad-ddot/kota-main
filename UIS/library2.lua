@@ -713,8 +713,8 @@ local Library do
     end
 
     Library.NextFlag = function(self)
-        local FlagNumber = self.UnnamedFlags + 1
-        return StringFormat("Flag Number %s %s", FlagNumber, HttpService:GenerateGUID(false))
+        self.UnnamedFlags = (self.UnnamedFlags or 0) + 1
+        return "auto_flag_" .. self.UnnamedFlags
     end
 
     Library.AddToTheme = function(self, Item, Properties)
@@ -1904,6 +1904,19 @@ local Library do
 
     Library.CreateWindow = function(self, Info)
         Info = Info or { }
+
+        if Info.Configs then
+            Library.Folders.Configs = Info.Configs
+        end
+
+        pcall(function()
+            if type(makefolder) ~= "function" or type(isfolder) ~= "function" then return end
+            local acc = ""
+            for chunk in string.gmatch(Library.Folders.Configs, "[^/]+") do
+                acc = acc == "" and chunk or (acc .. "/" .. chunk)
+                if not isfolder(acc) then makefolder(acc) end
+            end
+        end)
 
         local Window = self:Window({
             Name = Info.Title or Info.Name or "kota.tech",
@@ -4202,6 +4215,210 @@ local Library do
         Resize()
 
         return Viewer
+    end
+
+    Library.ItemFinder = function(self, Data)
+        Data = Data or { }
+
+        local Finder = {
+            Rows = { },
+            Visible = false
+        }
+
+        local Items = { }
+
+        Items["Root"] = Instances:Create("Frame", {
+            Parent = Library.Holder.Instance,
+            BorderColor3 = FromRGB(10, 10, 10),
+            Name = "\0",
+            Position = UDim2New(0, 240, 0, 120),
+            Size = UDim2New(0, 210, 0, 58),
+            BorderSizePixel = 2,
+            Visible = false,
+            BackgroundColor3 = FromRGB(15, 15, 20)
+        })
+        Items["Root"]:AddToTheme({BackgroundColor3 = "Background", BorderColor3 = "Border"})
+        Items["Root"]:MakeDraggable()
+
+        Instances:Create("UIStroke", {
+            Parent = Items["Root"].Instance,
+            ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+            LineJoinMode = Enum.LineJoinMode.Miter,
+            Name = "\0",
+            Color = FromRGB(27, 27, 32)
+        }):AddToTheme({Color = "Outline"})
+
+        Items["Accent"] = Instances:Create("Frame", {
+            Parent = Items["Root"].Instance,
+            Name = "\0",
+            Position = UDim2New(0, 0, 0, 0),
+            BorderColor3 = FromRGB(0, 0, 0),
+            Size = UDim2New(1, 0, 0, 2),
+            BorderSizePixel = 0,
+            BackgroundColor3 = FromRGB(235, 157, 255)
+        })
+        Items["Accent"]:AddToTheme({BackgroundColor3 = "Accent"})
+
+        Instances:Create("UIGradient", {
+            Parent = Items["Accent"].Instance,
+            Rotation = 90,
+            Color = RGBSequence{RGBSequenceKeypoint(0, FromRGB(255, 255, 255)), RGBSequenceKeypoint(1, FromRGB(65, 65, 65))}
+        })
+
+        Items["Title"] = Instances:Create("TextLabel", {
+            Parent = Items["Root"].Instance,
+            FontFace = Library.Font,
+            TextColor3 = FromRGB(215, 215, 215),
+            BorderColor3 = FromRGB(0, 0, 0),
+            Text = "Item Finder",
+            Name = "\0",
+            Position = UDim2New(0, 5, 0, 4),
+            Size = UDim2New(1, -10, 0, 15),
+            BackgroundTransparency = 1,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            BorderSizePixel = 0,
+            TextSize = 12,
+            BackgroundColor3 = FromRGB(255, 255, 255)
+        })
+        Items["Title"]:AddToTheme({TextColor3 = "Text"})
+
+        Instances:Create("UIStroke", {
+            Parent = Items["Title"].Instance,
+            LineJoinMode = Enum.LineJoinMode.Miter,
+            Name = "\0"
+        }):AddToTheme({Color = "Text Border"})
+
+        Items["Divider"] = Instances:Create("Frame", {
+            Parent = Items["Root"].Instance,
+            Name = "\0",
+            Position = UDim2New(0, 1, 0, 21),
+            BorderColor3 = FromRGB(0, 0, 0),
+            Size = UDim2New(1, -2, 0, 1),
+            BorderSizePixel = 0,
+            BackgroundColor3 = FromRGB(27, 27, 32)
+        })
+        Items["Divider"]:AddToTheme({BackgroundColor3 = "Outline"})
+
+        Items["Body"] = Instances:Create("ScrollingFrame", {
+            Parent = Items["Root"].Instance,
+            Name = "\0",
+            BackgroundTransparency = 1,
+            Position = UDim2New(0, 5, 0, 25),
+            Size = UDim2New(1, -10, 1, -30),
+            BorderSizePixel = 0,
+            CanvasSize = UDim2New(0, 0, 0, 0),
+            ScrollBarThickness = 2,
+            ScrollBarImageColor3 = FromRGB(235, 157, 255),
+            BackgroundColor3 = FromRGB(255, 255, 255)
+        })
+        Items["Body"]:AddToTheme({ScrollBarImageColor3 = "Accent"})
+
+        Instances:Create("UIListLayout", {
+            Parent = Items["Body"].Instance,
+            Padding = UDimNew(0, 1),
+            SortOrder = Enum.SortOrder.LayoutOrder
+        })
+
+        local function Resize()
+            local Longest = Items["Title"].Instance.TextBounds.X
+            for _, Row in Finder.Rows do
+                local RowWidth = Row.Instance.TextBounds.X
+                if RowWidth > Longest then Longest = RowWidth end
+            end
+
+            local Width = MathClamp(MathFloor(Longest) + 24, 210, 340)
+            local ContentHeight = #Finder.Rows * 15
+            local Height = MathClamp(ContentHeight + 31, 45, 520)
+
+            Items["Body"].Instance.CanvasSize = UDim2New(0, 0, 0, ContentHeight)
+            Items["Root"]:Tween(TweenInfo.new(0.17, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                Size = UDim2New(0, Width, 0, Height)
+            })
+        end
+
+        local function AddRow(Text, Dead)
+            local Row = Instances:Create("TextLabel", {
+                Parent = Items["Body"].Instance,
+                FontFace = Library.Font,
+                TextColor3 = Dead and FromRGB(200, 120, 120) or FromRGB(215, 215, 215),
+                BorderColor3 = FromRGB(0, 0, 0),
+                Text = Text,
+                Name = "\0",
+                Size = UDim2New(1, 0, 0, 14),
+                BackgroundTransparency = 1,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                BorderSizePixel = 0,
+                LayoutOrder = #Finder.Rows + 1,
+                TextSize = 12,
+                BackgroundColor3 = FromRGB(255, 255, 255)
+            })
+            Row:AddToTheme({TextColor3 = Dead and "Risky" or "Text"})
+
+            Instances:Create("UIStroke", {
+                Parent = Row.Instance,
+                LineJoinMode = Enum.LineJoinMode.Miter,
+                Name = "\0"
+            }):AddToTheme({Color = "Text Border"})
+
+            TableInsert(Finder.Rows, Row)
+        end
+
+        function Finder:Clear()
+            for _, Row in Finder.Rows do
+                Row:Clean()
+            end
+            Finder.Rows = { }
+            Finder._signature = ""
+            Resize()
+        end
+
+        function Finder:SetTitle(Text)
+            Items["Title"].Instance.Text = tostring(Text or "Item Finder")
+            Resize()
+        end
+
+        Finder._signature = ""
+
+        function Finder:Refresh(Entries)
+            if type(Entries) ~= "table" then Entries = {} end
+
+            local parts = {}
+            for _, Entry in Entries do
+                if type(Entry) == "string" then
+                    parts[#parts + 1] = "0|" .. Entry
+                else
+                    parts[#parts + 1] = (Entry.Dead and "1|" or "0|") .. tostring(Entry.Text or "")
+                end
+            end
+            local sig = table.concat(parts, "\30")
+            if sig == Finder._signature then return end
+            Finder._signature = sig
+
+            for _, Row in Finder.Rows do
+                Row:Clean()
+            end
+            Finder.Rows = { }
+
+            for _, Entry in Entries do
+                if type(Entry) == "string" then
+                    AddRow(Entry, false)
+                else
+                    AddRow(tostring(Entry.Text or ""), Entry.Dead == true)
+                end
+            end
+            Resize()
+        end
+
+        function Finder:SetVisibility(Bool)
+            Bool = Bool == true
+            if Finder.Visible == Bool then return end
+            Finder.Visible = Bool
+            Library:FadeWidget(Items["Root"], Bool)
+        end
+
+        Resize()
+
+        return Finder
     end
 
     Library.CreateColorpicker = function(self, Data)
@@ -7092,11 +7309,16 @@ local Library do
             Callback = Data.Callback or Data.callback or function() end,
             Multi = Data.Multi or Data.multi or false,
 
+            Search = Data.Search == true or Data.search == true,
+            MaxHeight = tonumber(Data.MaxHeight or Data.maxHeight) or 0,
+
             Value = { },
             IsOpen = false,
             Options = { },
             Class = "Dropdown",
         }
+
+        if Dropdown.Search and Dropdown.MaxHeight <= 0 then Dropdown.MaxHeight = 200 end
 
         local Items = { } do
             Items["Dropdown"] = Instances:Create("Frame", {
@@ -7210,7 +7432,7 @@ local Library do
                 Size = UDim2New(0, 100, 0, 0),
                 BorderSizePixel = 2,
                 ZIndex = 500,
-                AutomaticSize = Enum.AutomaticSize.Y,
+                AutomaticSize = (Dropdown.MaxHeight > 0) and Enum.AutomaticSize.None or Enum.AutomaticSize.Y,
                 BackgroundColor3 = FromRGB(20, 20, 25)
             })  Items["OptionHolder"]:AddToTheme({BackgroundColor3 = "Inline", BorderColor3 = "Border"})
 
@@ -7222,15 +7444,49 @@ local Library do
                 Color = FromRGB(27, 27, 32)
             }):AddToTheme({Color = "Outline"})
 
+            if Dropdown.Search then
+                local SearchRoot, SearchInline = Library:CreateTextInput(Items["OptionHolder"].Instance, {
+                    Position = UDim2New(0, 4, 0, 4),
+                    Size = UDim2New(1, -8, 0, 18),
+                    Placeholder = "search...",
+                    ZIndex = 502
+                })
+                Items["SearchRoot"] = SearchRoot
+                Items["SearchBox"] = SearchInline
+            end
+
+            local ListParent
+            if Dropdown.MaxHeight > 0 then
+                Items["Scroll"] = Instances:Create("ScrollingFrame", {
+                    Parent = Items["OptionHolder"].Instance,
+                    Name = "\0",
+                    BackgroundTransparency = 1,
+                    Position = UDim2New(0, 0, 0, Dropdown.Search and 26 or 0),
+                    Size = UDim2New(1, 0, 1, Dropdown.Search and -26 or 0),
+                    BorderSizePixel = 0,
+                    CanvasSize = UDim2New(0, 0, 0, 0),
+                    ScrollBarThickness = 3,
+                    ScrollBarImageColor3 = FromRGB(235, 157, 255),
+                    AutomaticCanvasSize = Enum.AutomaticSize.Y,
+                    ZIndex = 501
+                })
+                Items["Scroll"]:AddToTheme({ScrollBarImageColor3 = "Accent"})
+                ListParent = Items["Scroll"].Instance
+            else
+                ListParent = Items["OptionHolder"].Instance
+            end
+
             Instances:Create("UIListLayout", {
-                Parent = Items["OptionHolder"].Instance,
+                Parent = ListParent,
                 SortOrder = Enum.SortOrder.LayoutOrder
             })
 
             Instances:Create("UIPadding", {
-                Parent = Items["OptionHolder"].Instance,
+                Parent = ListParent,
                 PaddingBottom = UDimNew(0, 2)
             })
+
+            Items["ListParent"] = { Instance = ListParent }
 
             Items["RealDropdown"]:OnHover(function()
                 Items["RealDropdown"]:Tween(nil, {BackgroundColor3 = Library.Theme["Hovered Element"]})
@@ -7318,7 +7574,7 @@ local Library do
 
         function Dropdown:Add(Option)
             local OptionButton = Instances:Create("TextButton", {
-                Parent = Items["OptionHolder"].Instance,
+                Parent = Items["ListParent"].Instance,
                 FontFace = Library.Font,
                 TextColor3 = FromRGB(0, 0, 0),
                 BorderColor3 = FromRGB(0, 0, 0),
@@ -7537,8 +7793,13 @@ local Library do
 
             Debounce = true
 
-            local Layout = Items["OptionHolder"].Instance:FindFirstChildOfClass("UIListLayout")
-            local Full = Layout and Layout.AbsoluteContentSize.Y or 0
+            local Layout = Items["ListParent"].Instance:FindFirstChildOfClass("UIListLayout")
+            local ListY = Layout and Layout.AbsoluteContentSize.Y or 0
+            local Extra = Dropdown.Search and 26 or 0
+            local Full = ListY + Extra
+            if Dropdown.MaxHeight > 0 and Full > Dropdown.MaxHeight then
+                Full = Dropdown.MaxHeight
+            end
             local SlideInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 
             local Anchor = Items["RealDropdown"].Instance
@@ -7559,7 +7820,7 @@ local Library do
                 Items["OptionHolder"]:Tween(SlideInfo, {Size = UDim2New(0, Wide, 0, Full)})
 
                 task.delay(0.2, function()
-                    if Dropdown.IsOpen then
+                    if Dropdown.IsOpen and Dropdown.MaxHeight <= 0 then
                         Items["OptionHolder"].Instance.AutomaticSize = Enum.AutomaticSize.Y
                     end
                 end)
@@ -7632,6 +7893,16 @@ local Library do
 
         if Dropdown.DefaultIndex and Dropdown.Items[Dropdown.DefaultIndex] then
             Dropdown.Default = Dropdown.Items[Dropdown.DefaultIndex]
+        end
+
+        if Dropdown.Search and Items["SearchBox"] then
+            Items["SearchBox"].Instance:GetPropertyChangedSignal("Text"):Connect(function()
+                local query = Items["SearchBox"].Instance.Text:lower()
+                for name, option in pairs(Dropdown.Options) do
+                    local hit = query == "" or name:lower():find(query, 1, true) ~= nil
+                    option.Button.Instance.Visible = hit
+                end
+            end)
         end
 
         Items["Open"]:Connect("MouseButton1Down", function()
@@ -7752,6 +8023,81 @@ local Library do
         function Label:Settings() return Label.Section end
 
         return Label
+    end
+
+    Library.CreateTextInput = function(self, Parent, Opts)
+        Opts = Opts or { }
+
+        local Root = Instances:Create("Frame", {
+            Parent = Parent,
+            AnchorPoint = Opts.AnchorPoint or Vector2New(0, 0),
+            Name = "\0",
+            Position = Opts.Position or UDim2New(0, 0, 0, 0),
+            Size = Opts.Size or UDim2New(1, 0, 0, 17),
+            BorderColor3 = FromRGB(10, 10, 10),
+            BorderSizePixel = 2,
+            BackgroundColor3 = FromRGB(33, 33, 36),
+            ZIndex = Opts.ZIndex or 1
+        })
+        Root:AddToTheme({BackgroundColor3 = "Element", BorderColor3 = "Border"})
+
+        Instances:Create("UIGradient", {
+            Parent = Root.Instance,
+            Rotation = 90,
+            Color = RGBSequence{RGBSequenceKeypoint(0, FromRGB(255, 255, 255)), RGBSequenceKeypoint(1, FromRGB(100, 100, 100))}
+        })
+
+        Instances:Create("UIStroke", {
+            Parent = Root.Instance,
+            ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+            LineJoinMode = Enum.LineJoinMode.Miter,
+            Name = "\0",
+            Color = FromRGB(27, 27, 32)
+        }):AddToTheme({Color = "Outline"})
+
+        local Inline = Instances:Create("TextBox", {
+            Parent = Root.Instance,
+            FontFace = Library.Font,
+            TextColor3 = FromRGB(215, 215, 215),
+            BorderColor3 = FromRGB(0, 0, 0),
+            Text = "",
+            Name = "\0",
+            Size = UDim2New(1, 0, 1, 0),
+            BorderSizePixel = 0,
+            ClearTextOnFocus = false,
+            BackgroundTransparency = 1,
+            PlaceholderColor3 = FromRGB(178, 178, 178),
+            TextXAlignment = Enum.TextXAlignment.Left,
+            PlaceholderText = Opts.Placeholder or "...",
+            TextSize = 12,
+            ZIndex = (Opts.ZIndex or 1) + 1,
+            BackgroundColor3 = FromRGB(255, 255, 255)
+        })
+        Inline:AddToTheme({TextColor3 = "Text"})
+
+        Instances:Create("UIPadding", {
+            Parent = Inline.Instance,
+            PaddingBottom = UDimNew(0, 3),
+            PaddingLeft = UDimNew(0, 5)
+        })
+
+        Instances:Create("UIStroke", {
+            Parent = Inline.Instance,
+            LineJoinMode = Enum.LineJoinMode.Miter,
+            Name = "\0"
+        }):AddToTheme({Color = "Text Border"})
+
+        Root:OnHover(function()
+            Root:Tween(nil, {BackgroundColor3 = Library.Theme["Hovered Element"]})
+            Root:ChangeItemTheme({BackgroundColor3 = "Hovered Element", BorderColor3 = "Border"})
+        end)
+
+        Root:OnHoverLeave(function()
+            Root:Tween(nil, {BackgroundColor3 = Library.Theme["Element"]})
+            Root:ChangeItemTheme({BackgroundColor3 = "Element", BorderColor3 = "Border"})
+        end)
+
+        return Root, Inline
     end
 
     Library.Sections.Textbox = function(self, Data)
