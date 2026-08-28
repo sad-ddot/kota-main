@@ -111,6 +111,7 @@ local Library do
         ThemeItems = { },
 
         SetFlags = { },
+        TakenFlags = { },
 
         UnnamedConnections = 0,
         UnnamedFlags = 0,
@@ -308,6 +309,15 @@ local Library do
             setmetatable(NewItem, Instances)
 
             for Property, Value in NewItem.Properties do
+                if Property == "Text" or Property == "PlaceholderText" then
+                    if type(Value) ~= "string" then
+                        if Value == nil then
+                            Value = ""
+                        else
+                            Value = tostring(Value)
+                        end
+                    end
+                end
                 NewItem.Instance[Property] = Value
             end
 
@@ -714,7 +724,51 @@ local Library do
 
     Library.NextFlag = function(self)
         self.UnnamedFlags = (self.UnnamedFlags or 0) + 1
-        return "auto_flag_" .. self.UnnamedFlags
+        local Flag = "auto_flag_" .. self.UnnamedFlags
+        self.TakenFlags[Flag] = true
+        return Flag
+    end
+
+    Library.PickFlag = function(self, Data)
+        Data = Data or { }
+        local Given = Data.Flag or Data.flag
+        if type(Given) == "string" and Given ~= "" then
+            self.TakenFlags[Given] = true
+            return Given
+        end
+
+        local Name = Data.Name or Data.name
+        if type(Name) == "string" and Name ~= "" then
+            if not self.TakenFlags[Name] then
+                self.TakenFlags[Name] = true
+                return Name
+            end
+
+            local n = 2
+            local Cand = Name .. "_" .. n
+            while self.TakenFlags[Cand] do
+                n = n + 1
+                Cand = Name .. "_" .. n
+            end
+            self.TakenFlags[Cand] = true
+            return Cand
+        end
+
+        return self:NextFlag()
+    end
+
+    Library.BindFlag = function(self, Flag, Setter, Name, Auto)
+        self.SetFlags[Flag] = Setter
+
+        if type(Name) == "string" and Name ~= "" and Name ~= Flag then
+            if self.SetFlags[Name] == nil then
+                self.SetFlags[Name] = Setter
+            end
+        end
+
+        if Auto and type(Flag) == "string" and string.sub(Flag, 1, 10) ~= "auto_flag_" then
+            self.SetFlags[self:NextFlag()] = Setter
+        end
     end
 
     Library.AddToTheme = function(self, Item, Properties)
@@ -793,29 +847,62 @@ local Library do
     end
 
     Library.LoadConfig = function(self, Config)
-        local Decoded = HttpService:JSONDecode(Config)
+        if type(Config) ~= "string" or Config == "" then
+            return false
+        end
 
-        local Success, Result = Library:SafeCall(function()
-            for Index, Value in Decoded do
-                local SetFunction = Library.SetFlags[Index]
+        local Ok, Decoded = pcall(function()
+            return HttpService:JSONDecode(Config)
+        end)
+        if not Ok or type(Decoded) ~= "table" then
+            Library:Notification("could not read config", 5, FromRGB(255, 0, 0))
+            return false
+        end
 
-                if not SetFunction then
-                    continue
+        local function Merge(Src)
+            if type(Src) ~= "table" then
+                return
+            end
+            for Key, Value in Src do
+                if Decoded[Key] == nil then
+                    Decoded[Key] = Value
                 end
+            end
+        end
 
-                if type(Value) == "table" and Value.Key then
-                    SetFunction(Value)
-                elseif type(Value) == "table" and Value.Color then
-                    SetFunction(Value.Color, Value.Alpha)
+        Merge(Decoded.Toggles)
+        Merge(Decoded.Options)
+        Merge(Decoded.Flags)
+
+        for Index, Value in Decoded do
+            if Index == "Toggles" or Index == "Options" or Index == "Flags" then
+                continue
+            end
+
+            local SetFunction = Library.SetFlags[Index]
+            if not SetFunction then
+                continue
+            end
+
+            pcall(function()
+                if type(Value) == "table" then
+                    if Value.Key ~= nil then
+                        SetFunction(Value)
+                    elseif Value.Color ~= nil then
+                        SetFunction(Value.Color, Value.Alpha)
+                    elseif Value.Value ~= nil then
+                        SetFunction(Value.Value)
+                    else
+                        SetFunction(Value)
+                    end
                 else
                     SetFunction(Value)
                 end
-            end
-        end)
-
-        if Success then
-            Library:Notification("Successfully loaded config", 5, Color3.fromRGB(0, 255, 0))
+            end)
         end
+
+        Library:Notification("Successfully loaded config", 5, Color3.fromRGB(0, 255, 0))
+        return true
     end
 
     Library.DeleteConfig = function(self, Config)
@@ -1382,7 +1469,7 @@ local Library do
                 FontFace = Library.Font,
                 TextColor3 = FromRGB(215, 215, 215),
                 BorderColor3 = FromRGB(0, 0, 0),
-                Text = Text,
+                Text = tostring(Text or ""),
                 Name = "\0",
                 Size = UDim2New(1, 0, 0, 15),
                 BackgroundTransparency = 1,
@@ -1871,8 +1958,7 @@ local Library do
             self:Notification("config '" .. tostring(Name) .. "' not found", 5, FromRGB(255, 0, 0))
             return false
         end
-        self:LoadConfig(Body)
-        return true
+        return self:LoadConfig(Body) ~= false
     end
 
     Library.CreateWatermark = function(self, Info)
@@ -4978,9 +5064,9 @@ local Library do
             Colorpicker:Set(Data.Default, Start)
         end
 
-        Library.SetFlags[Data.Flag] = function(Color, Alpha)
+        Library:BindFlag(Data.Flag, function(Color, Alpha)
             Colorpicker:Set(Color, Alpha)
-        end
+        end, Data.Name, Data.Auto)
 
         return Colorpicker
     end
@@ -5222,6 +5308,10 @@ local Library do
             Data.Parent.Instance.Visible = Bool
         end
 
+        function Keybind:SetOffset(Px)
+            Items["KeyButton"].Instance.Position = UDim2New(1, -Px, 0, 0)
+        end
+
         function Keybind:Reposition()
             local Anchor = Items["KeyButton"].Instance
             local Panel = Items["Window"].Instance
@@ -5320,7 +5410,7 @@ local Library do
                 local TextToDisplay = StringGSub(StringGSub(KeyString, "KeyCode.", ""), "UserInputType.", "") or "None"
 
                 Keybind.Value = TextToDisplay
-                Items["Text"].Instance.Text = TextToDisplay
+                Items["Text"].Instance.Text = tostring(TextToDisplay or "None")
 
                 if Data.Callback then
                     Library:SafeCall(Data.Callback, Keybind.Toggled)
@@ -5351,7 +5441,7 @@ local Library do
                 TextToDisplay = StringGSub(StringGSub(KeyString, "KeyCode.", ""), "UserInputType.", "")
 
                 Keybind.Value = TextToDisplay
-                Items["Text"].Instance.Text = TextToDisplay
+                Items["Text"].Instance.Text = tostring(TextToDisplay or "None")
 
                 if Keybind.Callback and not Keybind.Building then
                     Library:SafeCall(Keybind.Callback, Keybind.Toggled)
@@ -5490,9 +5580,9 @@ local Library do
 
         Keybind.Building = false
 
-        Library.SetFlags[Data.Flag] = function(Value)
+        Library:BindFlag(Data.Flag, function(Value)
             Keybind:Set(Value)
-        end
+        end, Data.Name, Data.Auto)
 
         return Keybind
     end
@@ -6749,7 +6839,7 @@ local Library do
             Section = self,
 
             Name = Data.Name or Data.name or "Toggle",
-            Flag = Data.Flag or Data.flag or Library:NextFlag(),
+            Flag = Library:PickFlag(Data),
             Default = Data.Default or Data.default or false,
             Callback = Data.Callback or Data.callback or function() end,
 
@@ -6845,7 +6935,31 @@ local Library do
         end
 
         function Toggle:Set(Bool)
-            if Bool == nil then Toggle.Value = not Toggle.Value else Toggle.Value = Bool == true end
+            if Bool == nil then
+                Toggle.Value = not Toggle.Value
+            else
+                local Kind = type(Bool)
+                if Kind == "boolean" then
+                    Toggle.Value = Bool
+                elseif Kind == "number" then
+                    Toggle.Value = Bool ~= 0
+                elseif Kind == "string" then
+                    local Text = string.lower(Bool)
+                    Toggle.Value = Text == "true" or Text == "1" or Text == "on" or Text == "yes"
+                elseif Kind == "table" then
+                    local Inner = Bool.Value
+                    if Inner == nil then
+                        Inner = Bool.Toggled
+                    end
+                    if type(Inner) == "boolean" then
+                        Toggle.Value = Inner
+                    else
+                        Toggle.Value = Inner == true
+                    end
+                else
+                    Toggle.Value = false
+                end
+            end
 
             Library.Flags[Toggle.Flag] = Toggle.Value
 
@@ -6892,7 +7006,8 @@ local Library do
 
                 Parent = Items["Toggle"],
                 Name = Data.Name or Data.name or "Colorpicker",
-                Flag = Data.Flag or Data.flag or Library:NextFlag(),
+                Flag = Library:PickFlag(Data),
+                Auto = not (Data.Flag or Data.flag),
                 Default = Data.Default or Data.default or Color3.fromRGB(255, 255, 255),
                 Callback = Data.Callback or Data.callback or function() end,
                 Alpha = Data.Alpha or Data.alpha or false,
@@ -6907,6 +7022,9 @@ local Library do
             local Extension = Library:CreateColorpicker(Colorpicker)
             Library.Flags[Colorpicker.Flag] = Extension
             Toggle.ColorPicker = Extension
+            if Toggle.KeyPicker then
+                Toggle.KeyPicker:SetOffset(Toggle.Count * 24)
+            end
 
             return Extension
         end
@@ -6923,7 +7041,8 @@ local Library do
                 Owner = Toggle,
                 Sync = Data.SyncToggleState or Data.sync or false,
                 Name = Data.Name or Data.name or Toggle.Name,
-                Flag = Data.Flag or Data.flag or Library:NextFlag(),
+                Flag = Library:PickFlag(Data),
+                Auto = not (Data.Flag or Data.flag),
                 Default = Data.Default or Data.default or "MB2",
                 Mode = Data.Mode or Data.mode or "Toggle",
                 Callback = Data.Callback or Data.callback or function() end,
@@ -6932,6 +7051,7 @@ local Library do
             local Extension = Library:CreateKeybind(Keybind)
             Library.Flags[Keybind.Flag] = Extension
             Toggle.KeyPicker = Extension
+            Extension:SetOffset(Toggle.Count * 24)
 
             return Extension, Keybind
         end
@@ -6947,9 +7067,9 @@ local Library do
 
         Toggle:Set(Toggle.Default)
 
-        Library.SetFlags[Toggle.Flag] = function(Value)
+        Library:BindFlag(Toggle.Flag, function(Value)
             Toggle:Set(Value)
-        end
+        end, Toggle.Name, not (Data.Flag or Data.flag))
 
         function Toggle:Settings() return Toggle.Section end
 
@@ -7074,7 +7194,7 @@ local Library do
             Section = self,
 
             Name = Data.Name or Data.name or "Slider",
-            Flag = Data.Flag or Data.flag or Library:NextFlag(),
+            Flag = Library:PickFlag(Data),
             Min = Data.Min or Data.min or 0,
             Default = Data.Default or Data.default or 0,
             Max = Data.Max or Data.max or 100,
@@ -7284,9 +7404,9 @@ local Library do
 
         Slider:Set(Slider.Default or Slider.Min)
 
-        Library.SetFlags[Slider.Flag] = function(Value)
+        Library:BindFlag(Slider.Flag, function(Value)
             Slider:Set(Value)
-        end
+        end, Slider.Name, not (Data.Flag or Data.flag))
 
         function Slider:Settings() return Slider.Section end
 
@@ -7302,7 +7422,7 @@ local Library do
             Section = self,
 
             Name = Data.Name or Data.name or "Dropdown",
-            Flag = Data.Flag or Data.flag or Library:NextFlag(),
+            Flag = Library:PickFlag(Data),
             Items = Data.Items or Data.items or { "One", "Two", "Three" },
             Default = Data.Default or Data.default or nil,
             DefaultIndex = tonumber(Data.Default or Data.default),
@@ -7917,9 +8037,9 @@ local Library do
             end
         end
 
-        Library.SetFlags[Dropdown.Flag] = function(Value)
+        Library:BindFlag(Dropdown.Flag, function(Value)
             Dropdown:Set(Value)
-        end
+        end, Dropdown.Name, not (Data.Flag or Data.flag))
 
         function Dropdown:Settings() return Dropdown.Section end
 
@@ -7983,7 +8103,8 @@ local Library do
 
                 Parent = Items["Label"],
                 Name = Data.Name or Data.name or "Colorpicker",
-                Flag = Data.Flag or Data.flag or Library:NextFlag(),
+                Flag = Library:PickFlag(Data),
+                Auto = not (Data.Flag or Data.flag),
                 Default = Data.Default or Data.default or Color3.fromRGB(255, 255, 255),
                 Callback = Data.Callback or Data.callback or function() end,
                 Alpha = Data.Alpha or Data.alpha or false,
@@ -8009,7 +8130,8 @@ local Library do
 
                 Parent = Items["Label"],
                 Name = Data.Name or Data.name or "Keybind",
-                Flag = Data.Flag or Data.flag or Library:NextFlag(),
+                Flag = Library:PickFlag(Data),
+                Auto = not (Data.Flag or Data.flag),
                 Default = Data.Default or Data.default or "MB2",
                 Mode = Data.Mode or Data.mode or "Toggle",
                 Callback = Data.Callback or Data.callback or function() end,
@@ -8109,7 +8231,7 @@ local Library do
             Section = self,
 
             Name = Data.Name or Data.name or "Textbox",
-            Flag = Data.Flag or Data.flag or Library:NextFlag(),
+            Flag = Library:PickFlag(Data),
             Placeholder = Data.Placeholder or Data.placeholder or "...",
             Default = Data.Default or Data.default or "",
             Callback = Data.Callback or Data.callback or function() end,
@@ -8225,9 +8347,15 @@ local Library do
         end
 
         function Textbox:Set(Value)
+            if Value == nil then
+                Value = ""
+            else
+                Value = tostring(Value)
+            end
+
             Textbox.Value = Value
 
-            Items["Inline"].Instance.Text = Textbox.Value
+            Items["Inline"].Instance.Text = Value
             Items["Inline"]:Tween(nil, {TextColor3 = Library.Theme.Text})
             Items["Inline"]:ChangeItemTheme({TextColor3 = "Text"})
 
@@ -8252,9 +8380,9 @@ local Library do
 
         Textbox:Set(Textbox.Default or "")
 
-        Library.SetFlags[Textbox.Flag] = function(Value)
+        Library:BindFlag(Textbox.Flag, function(Value)
             Textbox:Set(Value)
-        end
+        end, Textbox.Name, not (Data.Flag or Data.flag))
 
         function Textbox:Settings() return Textbox.Section end
 
@@ -8272,7 +8400,7 @@ local Library do
             Items = Data.Items or Data.items or { },
             Multi = Data.Multi or Data.multi or false,
             Default = Data.Default or Data.default or 1,
-            Flag = Data.Flag or Data.flag or Library:NextFlag(),
+            Flag = Library:PickFlag(Data),
             Callback = Data.Callback or Data.callback or function() end,
             Size = Data.Size or Data.size or 175,
 
@@ -8518,9 +8646,9 @@ local Library do
             end
         end
 
-        Library.SetFlags[Listbox.Flag] = function(Value)
+        Library:BindFlag(Listbox.Flag, function(Value)
             Listbox:Set(Value)
-        end
+        end, Data.Name or Data.name, not (Data.Flag or Data.flag))
 
         function Listbox:Settings() return Listbox.Section end
 
@@ -8530,3 +8658,4 @@ end
 
 getgenv().Library = Library
 return Library
+
