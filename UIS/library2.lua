@@ -5588,7 +5588,7 @@ local Library do
 
         local Loader = {
             Name = Data.Name or Data.name or "Loader",
-            Size = Data.Size or Data.size or UDim2New(0, 238, 0, 26),
+            Size = Data.Size or Data.size or UDim2New(0, 238, 0, 20),
 
             FadeSpeed = Data.FadeSpeed or Data.fadespeed or 0.22,
 
@@ -5604,8 +5604,8 @@ local Library do
 
         local Items = { } do
             Items["MainFrame"] = Instances:Create("Frame", {
-                Parent = Library.Holder.Instance,
                 Name = "\0",
+                Parent = Library.Holder.Instance,
                 Position = UDim2New(1, -254, 0, 64),
                 BorderColor3 = FromRGB(10, 10, 10),
                 Size = Loader.Size,
@@ -5648,50 +5648,9 @@ local Library do
                 Name = "\0"
             }):AddToTheme({Color = "Text Border"})
 
-            Items["Status"] = Instances:Create("TextLabel", {
-                Name = "\0",
-                Text = "",
-                Parent = Items["MainFrame"].Instance,
-                FontFace = Library.Font,
-                TextColor3 = FromRGB(160, 160, 160),
-                Size = UDim2New(1, -12, 0, 13),
-                BorderSizePixel = 0,
-                TextTruncate = Enum.TextTruncate.AtEnd,
-                Position = UDim2New(0, 6, 0, 15),
-                BackgroundTransparency = 1,
-                TextXAlignment = Enum.TextXAlignment.Left,
-                TextSize = 12,
-                BackgroundColor3 = FromRGB(255, 255, 255)
-            })
-
-            Items["Bar"] = Instances:Create("Frame", {
-                Name = "\0",
-                Position = UDim2New(0, 7, 0, 31),
-                Parent = Items["MainFrame"].Instance,
-                BorderColor3 = FromRGB(0, 0, 0),
-                Size = UDim2New(1, -14, 0, 4),
-                BorderSizePixel = 0,
-                BackgroundColor3 = FromRGB(28, 28, 33)
-            })
-
-            Items["Fill"] = Instances:Create("Frame", {
-                Name = "\0",
-                Visible = false,
-                Parent = Items["Bar"].Instance,
-                Size = UDim2New(0, 0, 1, 0),
-                BorderSizePixel = 0,
-                BackgroundColor3 = FromRGB(235, 157, 255)
-            })  Items["Fill"]:AddToTheme({BackgroundColor3 = "Accent"})
-
-            Instances:Create("UIGradient", {
-                Rotation = 90,
-                Parent = Items["Fill"].Instance,
-                Color = RGBSequence{RGBSequenceKeypoint(0, FromRGB(255, 255, 255)), RGBSequenceKeypoint(1, FromRGB(65, 65, 65))}
-            })
-
             Items["Inline"] = Instances:Create("Frame", {
                 Name = "\0",
-                Position = UDim2New(0, 7, 0, 40),
+                Position = UDim2New(0, 7, 0, 20),
                 Parent = Items["MainFrame"].Instance,
                 BorderColor3 = FromRGB(27, 27, 32),
                 Size = UDim2New(1, -14, 0, 0),
@@ -5713,6 +5672,49 @@ local Library do
                 Padding = UDimNew(0, 6),
                 SortOrder = Enum.SortOrder.LayoutOrder
             })
+
+            Items["Status"] = Instances:Create("TextLabel", {
+                Name = "\0",
+                Text = "",
+                Visible = false,
+                LayoutOrder = 1,
+                Parent = Items["Inline"].Instance,
+                FontFace = Library.Font,
+                TextColor3 = FromRGB(160, 160, 160),
+                Size = UDim2New(1, 0, 0, 13),
+                BorderSizePixel = 0,
+                TextTruncate = Enum.TextTruncate.AtEnd,
+                BackgroundTransparency = 1,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                TextSize = 12,
+                BackgroundColor3 = FromRGB(255, 255, 255)
+            })
+
+            Items["Bar"] = Instances:Create("Frame", {
+                Name = "\0",
+                Visible = false,
+                LayoutOrder = 2,
+                Parent = Items["Inline"].Instance,
+                BorderColor3 = FromRGB(0, 0, 0),
+                Size = UDim2New(1, 0, 0, 4),
+                BorderSizePixel = 0,
+                BackgroundColor3 = FromRGB(28, 28, 33)
+            })
+
+            Items["Fill"] = Instances:Create("Frame", {
+                Name = "\0",
+                Visible = false,
+                Parent = Items["Bar"].Instance,
+                Size = UDim2New(0, 0, 1, 0),
+                BorderSizePixel = 0,
+                BackgroundColor3 = FromRGB(235, 157, 255)
+            })  Items["Fill"]:AddToTheme({BackgroundColor3 = "Accent"})
+
+            Instances:Create("UIGradient", {
+                Rotation = 90,
+                Parent = Items["Fill"].Instance,
+                Color = RGBSequence{RGBSequenceKeypoint(0, FromRGB(255, 255, 255)), RGBSequenceKeypoint(1, FromRGB(65, 65, 65))}
+            })
         end
 
         Loader.Elements = Items
@@ -5733,6 +5735,7 @@ local Library do
             local HostItems = { } do
                 HostItems["Section"] = Instances:Create("Frame", {
                     Name = "\0",
+                    LayoutOrder = 3,
                     Parent = Items["Inline"].Instance,
                     BorderColor3 = FromRGB(27, 27, 32),
                     Size = UDim2New(1, 0, 0, 25),
@@ -5814,12 +5817,14 @@ local Library do
         end
 
         Loader.SetStatus = function(Loader, Text)
-            Items["Status"].Instance.Text = tostring(Text or "")
+            local Value = tostring(Text or "")
+            Items["Status"].Instance.Visible = Value ~= ""
+            Items["Status"].Instance.Text = Value
         end
 
         Loader.SetProgress = function(Loader, Value)
             Value = math.clamp(tonumber(Value) or 0, 0, 1)
-            Items["Fill"].Instance.Visible = Value > 0
+            Items["Bar"].Instance.Visible = Value > 0
             Items["Fill"].Instance.Size = UDim2New(Value, 0, 1, 0)
         end
 
