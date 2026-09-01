@@ -70,9 +70,9 @@ local DEFAULT_STYLE = {
     include_ai = true,
     death_fade_time = 1.5,
 
-    box = { enabled = true, type = "Default", thickness = 1, color = Color3.fromRGB(255,255,255), transparency = 1 },
+    box = { enabled = true, type = "Default", thickness = 1, color = Color3.fromRGB(255,255,255), transparency = 1, gradient = false, color_top = Color3.fromRGB(255,255,255), color_bottom = Color3.fromRGB(140,100,255) },
     box_outline = { enabled = true, thickness = 3, color = Color3.fromRGB(0,0,0), transparency = 1 },
-    box_fill = { enabled = false, color = Color3.fromRGB(0,0,0), transparency = 0.35 },
+    box_fill = { enabled = false, color = Color3.fromRGB(0,0,0), transparency = 0.35, gradient = false, color_top = Color3.fromRGB(255,255,255), color_bottom = Color3.fromRGB(60,200,120) },
 
     name = { enabled = true, size = 13, font = 2, color = Color3.fromRGB(255,255,255), outline = true, outline_color = Color3.fromRGB(0,0,0), slot = "top-center" },
     displayname = { enabled = false, size = 12, font = 2, color = Color3.fromRGB(200,200,200), outline = true, outline_color = Color3.fromRGB(0,0,0), slot = "top-center" },
@@ -155,6 +155,17 @@ local PROFILE_STYLES = {
         },
     },
 }
+
+local function lerp_color(a, b, t)
+    return Color3.new(
+        a.R + (b.R - a.R) * t,
+        a.G + (b.G - a.G) * t,
+        a.B + (b.B - a.B) * t
+    )
+end
+
+local FILL_STRIP_COUNT = 24
+local BOX_SEG_COUNT = 7
 
 local function deep_merge(dst, src)
     for k, v in pairs(src) do
@@ -258,6 +269,9 @@ function esp:_create_entry(subject, is_npc)
         hp_segments = {},
         skel_lines = {},
         box_lines = {},
+        fill_strips = {},
+        lod_far = false,
+        lod_vfar = false,
         adornments = {},
         chams_model = nil,
         chams_conns = nil,
@@ -308,6 +322,10 @@ function esp:_destroy_entry(entry)
         if ln then ln:Remove() end
     end
     entry.box_lines = {}
+    for _, strip in ipairs(entry.fill_strips or {}) do
+        if strip then strip:Remove() end
+    end
+    entry.fill_strips = {}
     if entry.icon and entry.icon.holder then
         entry.icon.holder:Destroy()
         entry.icon = nil
@@ -617,18 +635,19 @@ function esp:_get_kd(subject)
     local text_value = "KD 0.0"
     pcall(function()
         local players_folder = ReplicatedStorage:FindFirstChild("Players")
-        local player_folder = players_folder and players_folder:FindFirstChild(subject.Name)
-        local stats = player_folder and (player_folder:FindFirstChild("WipeStatistics", true)
-            or player_folder:FindFirstChild("Statistics", true))
+        local profile = players_folder and players_folder:FindFirstChild(subject.Name)
+        local status = profile and profile:FindFirstChild("Status")
+        local journey = status and status:FindFirstChild("Journey")
+        local stats = journey and journey:FindFirstChild("Statistics")
+        if not stats then
+            stats = profile and (profile:FindFirstChild("Statistics", true)
+                or profile:FindFirstChild("WipeStatistics", true))
+        end
         if stats then
-            local kills = tonumber(stats:GetAttribute("Kills")) or 0
-            local deaths = tonumber(stats:GetAttribute("Deaths")) or 0
+            local kills = math.max(math.floor((tonumber(stats:GetAttribute("Kills")) or 0) + 0.5), 0)
+            local deaths = math.max(math.floor((tonumber(stats:GetAttribute("Deaths")) or 0) + 0.5), 0)
             local ratio = deaths > 0 and (kills / deaths) or kills
-            if math.abs(ratio - math.floor(ratio + 0.00001)) < 0.00001 then
-                text_value = string.format("KD %d", math.floor(ratio))
-            else
-                text_value = string.format("KD %.1f", ratio)
-            end
+            text_value = string.format("KD %.2f (%d/%d)", ratio, kills, deaths)
         end
     end)
     self._kd_cache[subject] = {t = now, text = text_value}
@@ -637,6 +656,14 @@ end
 
 function esp:_draw_text_stack(entry, pos, sz, model, hum, dist, is_visible, alpha)
     local trans = alpha or 1
+    if entry.lod_vfar then
+        for _, key in ipairs({ "name", "displayname", "distance", "weapon", "kd" }) do
+            local obj = entry.objs[key]
+            if obj then obj.Visible = false end
+        end
+        return
+    end
+    local far = entry.lod_far == true
     local groups = {}
     local function push(slot_id, obj)
         groups[slot_id] = groups[slot_id] or {}
@@ -658,7 +685,7 @@ function esp:_draw_text_stack(entry, pos, sz, model, hum, dist, is_visible, alph
         entry.objs.name.Visible = false
     end
 
-    if self.style.displayname.enabled and not entry.is_npc then
+    if self.style.displayname.enabled and not far and not entry.is_npc then
         local d = entry.objs.displayname
         d.Text = entry.subject.DisplayName
         d.Size = self.style.displayname.size
@@ -686,7 +713,7 @@ function esp:_draw_text_stack(entry, pos, sz, model, hum, dist, is_visible, alph
         entry.objs.distance.Visible = false
     end
 
-    if self.style.weapon.enabled then
+    if self.style.weapon.enabled and not far then
         local w = entry.objs.weapon
         local wname = ""
         if self._weapon_getter then
@@ -709,7 +736,7 @@ function esp:_draw_text_stack(entry, pos, sz, model, hum, dist, is_visible, alph
         entry.objs.weapon.Visible = false
     end
 
-    if self.style.kd and self.style.kd.enabled and not entry.is_npc then
+    if self.style.kd and self.style.kd.enabled and not far and not entry.is_npc then
         local kd = entry.objs.kd
         kd.Text = self:_get_kd(entry.subject)
         kd.Size = self.style.kd.size or 12
@@ -906,6 +933,12 @@ function esp:_ensure_box_lines(entry, count)
     for i = count + 1, #entry.box_lines do entry.box_lines[i].Visible = false end
 end
 
+function esp:_ensure_fill_strips(entry)
+    while #entry.fill_strips < FILL_STRIP_COUNT do
+        entry.fill_strips[#entry.fill_strips + 1] = new_drawing("Square", { Filled = true, Visible = false, ZIndex = 1 })
+    end
+end
+
 function esp:_draw_box(entry, pos, sz, is_visible, alpha, model)
     local a = alpha or 1
     local box_type = tostring(self.style.box.type or "Default"):lower()
@@ -916,13 +949,40 @@ function esp:_draw_box(entry, pos, sz, is_visible, alpha, model)
         entry.objs.box_fill.Visible = false
         return
     end
-    if self.style.box_fill.enabled and (box_type == "default" or box_type == "corner") then
-        local fill = entry.objs.box_fill
-        fill.Size = sz
-        fill.Position = pos
-        fill.Color = self.style.box_fill.color
-        fill.Transparency = self.style.box_fill.transparency * a
-        fill.Visible = true
+    local fill_grad = self.style.box_fill.gradient == true
+        and self.style.box_fill.color_top ~= nil and self.style.box_fill.color_bottom ~= nil
+    for _, strip in ipairs(entry.fill_strips) do strip.Visible = false end
+    if self.style.box_fill.enabled and not entry.lod_vfar and (box_type == "default" or box_type == "corner") then
+        if fill_grad then
+            self:_ensure_fill_strips(entry)
+            local fc_top = self.style.box_fill.color_top
+            local fc_bot = self.style.box_fill.color_bottom
+            local fx, fy = math.floor(pos.X + 0.5), math.floor(pos.Y + 0.5)
+            local fw = math.floor(sz.X + 0.5)
+            local n = math.clamp(math.floor(sz.Y / 6), 5, FILL_STRIP_COUNT)
+            local prev = 0
+            for i = 1, n do
+                local edge = math.floor(sz.Y * i / n + 0.5)
+                local strip = entry.fill_strips[i]
+                strip.Position = Vector2.new(fx, fy + prev)
+                strip.Size = Vector2.new(fw, edge - prev)
+                strip.Color = lerp_color(fc_top, fc_bot, (i - 0.5) / n)
+                strip.Transparency = self.style.box_fill.transparency * a
+                strip.Visible = true
+                prev = edge
+            end
+            for i = n + 1, #entry.fill_strips do
+                entry.fill_strips[i].Visible = false
+            end
+            entry.objs.box_fill.Visible = false
+        else
+            local fill = entry.objs.box_fill
+            fill.Size = sz
+            fill.Position = pos
+            fill.Color = self.style.box_fill.color
+            fill.Transparency = self.style.box_fill.transparency * a
+            fill.Visible = true
+        end
     else
         entry.objs.box_fill.Visible = false
     end
@@ -985,7 +1045,54 @@ function esp:_draw_box(entry, pos, sz, is_visible, alpha, model)
         end
         return
     end
-    if self.style.box_outline.enabled and self.style.box.enabled then
+    local box_grad = self.style.box.gradient == true
+        and self.style.box.color_top ~= nil and self.style.box.color_bottom ~= nil
+    if box_grad and self.style.box.enabled and box_type == "default" then
+        entry.objs.box.Visible = false
+        entry.objs.box_outline.Visible = false
+        local want_outline = self.style.box_outline.enabled
+        local colored = 2 + BOX_SEG_COUNT * 2
+        self:_ensure_box_lines(entry, colored + (want_outline and colored or 0))
+        local left, top = pos.X, pos.Y
+        local right, bottom = left + sz.X, top + sz.Y
+        local c_top = self:_get_color(self.style.box.color_top, is_visible, false)
+        local c_bot = self:_get_color(self.style.box.color_bottom, is_visible, false)
+        local segs = {
+            { Vector2.new(left, top), Vector2.new(right, top), c_top },
+            { Vector2.new(left, bottom), Vector2.new(right, bottom), c_bot },
+        }
+        for i = 1, BOX_SEG_COUNT do
+            local t0 = (i - 1) / BOX_SEG_COUNT
+            local y0 = top + t0 * sz.Y
+            local y1 = top + (t0 + 1 / BOX_SEG_COUNT) * sz.Y
+            local mix = lerp_color(c_top, c_bot, t0)
+            segs[#segs + 1] = { Vector2.new(left, y0), Vector2.new(left, y1), mix }
+            segs[#segs + 1] = { Vector2.new(right, y0), Vector2.new(right, y1), mix }
+        end
+        local out_alpha = self.style.box_outline.transparency * a
+        local out_extra = self.style.box_outline.thickness
+        for i, seg in ipairs(segs) do
+            local line = entry.box_lines[i]
+            line.From = seg[1]
+            line.To = seg[2]
+            line.Color = seg[3]
+            line.Thickness = self.style.box.thickness
+            line.Transparency = self.style.box.transparency * a
+            line.ZIndex = 3
+            line.Visible = true
+            if want_outline then
+                local under = entry.box_lines[colored + i]
+                under.From = seg[1]
+                under.To = seg[2]
+                under.Color = self.style.box_outline.color
+                under.Thickness = self.style.box.thickness + out_extra
+                under.Transparency = out_alpha
+                under.ZIndex = 2
+                under.Visible = true
+            end
+        end
+    end
+    if self.style.box_outline.enabled and self.style.box.enabled and not box_grad then
         local outline = entry.objs.box_outline
         outline.Size = sz
         outline.Position = pos
@@ -996,7 +1103,7 @@ function esp:_draw_box(entry, pos, sz, is_visible, alpha, model)
     else
         entry.objs.box_outline.Visible = false
     end
-    if self.style.box.enabled then
+    if self.style.box.enabled and not box_grad then
         local box = entry.objs.box
         box.Size = sz
         box.Position = pos
@@ -1010,9 +1117,13 @@ function esp:_draw_box(entry, pos, sz, is_visible, alpha, model)
 end
 
 function esp:_draw_skeleton(entry, model, alpha)
+    if not self.style.skeleton.enabled or entry.lod_far then
+        if entry.skel_lines then
+            for _, ln in pairs(entry.skel_lines) do ln.Visible = false end
+        end
+        return
+    end
     self:_ensure_skel(entry)
-    if not self.style.skeleton.enabled then return end
-    local trans = 1 - (alpha or 1)
     for i, pair in ipairs(skeleton_bones) do
         local ln = entry.skel_lines[i]
         if ln then
@@ -1026,7 +1137,7 @@ function esp:_draw_skeleton(entry, model, alpha)
                     ln.To = Vector2.new(sb.X, sb.Y)
                     ln.Thickness = self.style.skeleton.thickness
                     ln.Color = self.style.skeleton.color
-                    ln.Transparency = 1 - (alpha or 1)
+                    ln.Transparency = alpha or 1
                     ln.Visible = true
                 else
                     ln.Visible = false
@@ -1087,6 +1198,11 @@ end
 function esp:_draw_weapon_icon(entry, pos, sz, model, alpha)
     local ic = entry.icon
     if not ic then return end
+    if entry.lod_far then
+        ic.holder.Visible = false
+        ic.current_key = nil
+        return
+    end
     local cfg = self.style.weapon_icon
     if not cfg.enabled then
         ic.holder.Visible = false
@@ -1151,6 +1267,7 @@ function esp:_hide_entry(entry)
     for _, ln in pairs(entry.skel_lines) do ln.Visible = false end
     for _, ln in pairs(entry.hp_segments) do ln.Visible = false end
     for _, ln in pairs(entry.box_lines) do ln.Visible = false end
+    for _, strip in ipairs(entry.fill_strips or {}) do strip.Visible = false end
     if entry.icon and entry.icon.holder then entry.icon.holder.Visible = false end
     self:_clear_chams(entry)
 end
@@ -1225,6 +1342,10 @@ function esp:_update_entry(entry, dt)
         self:_draw_arrow(entry, model, dt)
         return
     end
+
+    local px_h = sz.Y
+    entry.lod_far = px_h < 16
+    entry.lod_vfar = px_h < 9
 
     local is_visible = false
     if self._visible_check_fn and alive then
