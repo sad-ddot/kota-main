@@ -156,6 +156,38 @@ local PROFILE_STYLES = {
     },
 }
 
+local stack_groups = { }
+local stack_pool = { }
+local stack_pool_n = 0
+
+local function stack_begin()
+    for slot in pairs(stack_groups) do
+        stack_groups[slot] = nil
+    end
+    stack_pool_n = 0
+end
+
+local function stack_take()
+    stack_pool_n = stack_pool_n + 1
+    local it = stack_pool[stack_pool_n]
+    if not it then
+        it = { }
+        stack_pool[stack_pool_n] = it
+    end
+    return it
+end
+
+local function stack_push(slot_id, it)
+    local g = stack_groups[slot_id]
+    if not g then
+        g = { }
+        stack_groups[slot_id] = g
+    end
+    g[#g + 1] = it
+end
+
+local corner_buf = { }
+
 local function lerp_color(a, b, t)
     return Color3.new(
         a.R + (b.R - a.R) * t,
@@ -484,16 +516,15 @@ function esp:_project_corners(cf, size)
     local cam = get_camera()
     if not cam then return nil end
     local xs, ys, zs = size.X * 0.5, size.Y * 0.5, size.Z * 0.5
-    local corners = {
-        cf * Vector3.new(-xs, -ys, -zs),
-        cf * Vector3.new( xs, -ys, -zs),
-        cf * Vector3.new(-xs,  ys, -zs),
-        cf * Vector3.new( xs,  ys, -zs),
-        cf * Vector3.new(-xs, -ys,  zs),
-        cf * Vector3.new( xs, -ys,  zs),
-        cf * Vector3.new(-xs,  ys,  zs),
-        cf * Vector3.new( xs,  ys,  zs),
-    }
+    local corners = corner_buf
+    corners[1] = cf * Vector3.new(-xs, -ys, -zs)
+    corners[2] = cf * Vector3.new( xs, -ys, -zs)
+    corners[3] = cf * Vector3.new(-xs,  ys, -zs)
+    corners[4] = cf * Vector3.new( xs,  ys, -zs)
+    corners[5] = cf * Vector3.new(-xs, -ys,  zs)
+    corners[6] = cf * Vector3.new( xs, -ys,  zs)
+    corners[7] = cf * Vector3.new(-xs,  ys,  zs)
+    corners[8] = cf * Vector3.new( xs,  ys,  zs)
     local vp = cam.ViewportSize
     local min_x, min_y, max_x, max_y = math.huge, math.huge, -math.huge, -math.huge
     local front_count = 0
@@ -654,6 +685,21 @@ function esp:_get_kd(subject)
     return text_value
 end
 
+function esp:_cached_weapon(entry, model)
+    local now = tick()
+    if entry._wname and entry._wname_t and now - entry._wname_t < 0.15 then
+        return entry._wname
+    end
+    local wname = ""
+    if self._weapon_getter then
+        local ok, r = pcall(self._weapon_getter, entry.subject, model)
+        if ok and r then wname = tostring(r) end
+    end
+    entry._wname = wname
+    entry._wname_t = now
+    return wname
+end
+
 function esp:_draw_text_stack(entry, pos, sz, model, hum, dist, is_visible, alpha)
     local trans = alpha or 1
     if entry.lod_vfar then
@@ -664,12 +710,7 @@ function esp:_draw_text_stack(entry, pos, sz, model, hum, dist, is_visible, alph
         return
     end
     local far = entry.lod_far == true
-    local groups = {}
-    local function push(slot_id, obj)
-        groups[slot_id] = groups[slot_id] or {}
-        local g = groups[slot_id]
-        g[#g + 1] = obj
-    end
+    stack_begin()
 
     if self.style.name.enabled then
         local n = entry.objs.name
@@ -680,7 +721,7 @@ function esp:_draw_text_stack(entry, pos, sz, model, hum, dist, is_visible, alph
         n.Outline = self.style.name.outline
         n.OutlineColor = self.style.name.outline_color
         n.Transparency = trans
-        push(valid_slot(self.style.name.slot, "top-center"), { kind = "text", d = n, w = 0, h = n.Size, ord = self.style.name.order or 1 })
+        do local it = stack_take() it.kind = "text" it.d = n it.w = 0 it.h = n.Size it.ord = self.style.name.order or 1 stack_push(valid_slot(self.style.name.slot, "top-center"), it) end
     else
         entry.objs.name.Visible = false
     end
@@ -694,7 +735,7 @@ function esp:_draw_text_stack(entry, pos, sz, model, hum, dist, is_visible, alph
         d.Outline = self.style.displayname.outline
         d.OutlineColor = self.style.displayname.outline_color
         d.Transparency = trans
-        push(valid_slot(self.style.displayname.slot, "top-center"), { kind = "text", d = d, w = 0, h = d.Size, ord = self.style.displayname.order or 2 })
+        do local it = stack_take() it.kind = "text" it.d = d it.w = 0 it.h = d.Size it.ord = self.style.displayname.order or 2 stack_push(valid_slot(self.style.displayname.slot, "top-center"), it) end
     else
         entry.objs.displayname.Visible = false
     end
@@ -708,18 +749,14 @@ function esp:_draw_text_stack(entry, pos, sz, model, hum, dist, is_visible, alph
         ds.Outline = self.style.distance.outline
         ds.OutlineColor = self.style.distance.outline_color
         ds.Transparency = trans
-        push(valid_slot(self.style.distance.slot, "bottom-center"), { kind = "text", d = ds, w = 0, h = ds.Size, ord = self.style.distance.order or 3 })
+        do local it = stack_take() it.kind = "text" it.d = ds it.w = 0 it.h = ds.Size it.ord = self.style.distance.order or 3 stack_push(valid_slot(self.style.distance.slot, "bottom-center"), it) end
     else
         entry.objs.distance.Visible = false
     end
 
     if self.style.weapon.enabled and not far then
         local w = entry.objs.weapon
-        local wname = ""
-        if self._weapon_getter then
-            local ok, r = pcall(self._weapon_getter, entry.subject, model)
-            if ok and r then wname = tostring(r) end
-        end
+        local wname = self:_cached_weapon(entry, model)
         w.Text = wname
         w.Size = self.style.weapon.size
         w.Font = self.style.weapon.font
@@ -728,7 +765,7 @@ function esp:_draw_text_stack(entry, pos, sz, model, hum, dist, is_visible, alph
         w.OutlineColor = self.style.weapon.outline_color
         w.Transparency = trans
         if wname ~= "" then
-            push(valid_slot(self.style.weapon.slot, "bottom-center"), { kind = "text", d = w, w = 0, h = w.Size, ord = self.style.weapon.order or 4 })
+            do local it = stack_take() it.kind = "text" it.d = w it.w = 0 it.h = w.Size it.ord = self.style.weapon.order or 4 stack_push(valid_slot(self.style.weapon.slot, "bottom-center"), it) end
         else
             w.Visible = false
         end
@@ -745,7 +782,7 @@ function esp:_draw_text_stack(entry, pos, sz, model, hum, dist, is_visible, alph
         kd.Outline = self.style.kd.outline ~= false
         kd.OutlineColor = self.style.kd.outline_color or Color3.new(0, 0, 0)
         kd.Transparency = trans
-        push(valid_slot(self.style.kd.slot, "right-top"), { kind = "text", d = kd, w = 0, h = kd.Size, ord = self.style.kd.order or 6 })
+        do local it = stack_take() it.kind = "text" it.d = kd it.w = 0 it.h = kd.Size it.ord = self.style.kd.order or 6 stack_push(valid_slot(self.style.kd.slot, "right-top"), it) end
     else
         entry.objs.kd.Visible = false
     end
@@ -753,11 +790,8 @@ function esp:_draw_text_stack(entry, pos, sz, model, hum, dist, is_visible, alph
     local wic = self.style.weapon_icon
     local wi_slot = wic and wic.slot and valid_slot(wic.slot, nil)
     if wic and wic.enabled and wi_slot and entry.icon then
-        local key
-        if self._weapon_getter then
-            local ok, r = pcall(self._weapon_getter, entry.subject, model)
-            if ok and r and r ~= "" and r ~= "None" then key = tostring(r) end
-        end
+        local wname_now = self:_cached_weapon(entry, model)
+        local key = (wname_now ~= "" and wname_now ~= "None") and wname_now or nil
         local asset
         if key then
             local registered = false
@@ -788,7 +822,16 @@ function esp:_draw_text_stack(entry, pos, sz, model, hum, dist, is_visible, alph
                 ic.holder.Visible = true
             end
             entry._icon_slot_active = true
-            push(wi_slot, { kind = "icon", set_pos = set_pos, w = sz_i, h = sz_i, ord = wic.order or 5 })
+            do
+                local it = stack_take()
+                it.kind = "icon"
+                it.d = nil
+                it.set_pos = set_pos
+                it.w = sz_i
+                it.h = sz_i
+                it.ord = wic.order or 5
+                stack_push(wi_slot, it)
+            end
         else
             ic.holder.Visible = false
             ic.current_key = nil
@@ -901,7 +944,7 @@ function esp:_layout_slots(pos, sz, groups)
         end
     end
 
-    for slot_id, items in pairs(groups) do
+    for slot_id, items in pairs(stack_groups) do
         if slot_id == "top-left" then
             place_vertical(items, left, top, -1, "left")
         elseif slot_id == "top-center" then
@@ -941,7 +984,12 @@ end
 
 function esp:_draw_box(entry, pos, sz, is_visible, alpha, model)
     local a = alpha or 1
-    local box_type = tostring(self.style.box.type or "Default"):lower()
+    local bt_raw = self.style.box.type or "Default"
+    if bt_raw ~= self._box_type_key then
+        self._box_type_key = bt_raw
+        self._box_type_val = tostring(bt_raw):lower()
+    end
+    local box_type = self._box_type_val
     for _, line in ipairs(entry.box_lines) do line.Visible = false end
     if not self.style.box.enabled and not self.style.box_outline.enabled and not self.style.box_fill.enabled then
         entry.objs.box.Visible = false
