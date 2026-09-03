@@ -53,6 +53,8 @@ local skeleton_bones = {
     { "LowerTorso", "RightUpperLeg" }, { "RightUpperLeg", "RightLowerLeg" }, { "RightLowerLeg", "RightFoot" },
 }
 
+local SKELETON_BONES_N = #skeleton_bones
+
 local BODY_PARTS = {
     "Head", "UpperTorso", "LowerTorso",
     "LeftUpperArm", "LeftLowerArm", "LeftHand",
@@ -80,6 +82,13 @@ local DEFAULT_STYLE = {
     weapon = { enabled = false, size = 12, font = 2, color = Color3.fromRGB(200,200,200), outline = true, outline_color = Color3.fromRGB(0,0,0), slot = "bottom-center" },
     weapon_icon = { enabled = false, size = 22, slot = "bottom-center" },
     kd = { enabled = false, size = 12, font = 2, color = Color3.fromRGB(200, 200, 200), outline = true, outline_color = Color3.fromRGB(0, 0, 0), slot = "right-top", order = 6 },
+    status = { enabled = false, size = 12, font = 2, outline = true, outline_color = Color3.fromRGB(0, 0, 0), slot = "bottom-center", order = 7 },
+    status_colors = {
+        Friend = Color3.fromRGB(120, 220, 160),
+        Priority = Color3.fromRGB(255, 140, 120),
+        Neutral = Color3.fromRGB(200, 200, 210),
+        Target = Color3.fromRGB(170, 110, 255),
+    },
 
     health = {
         enabled = true,
@@ -232,6 +241,7 @@ function esp.new(config)
     self._loot_worth_getter = nil
     self._loot_provider = nil
     self._loot_anchor_getter = nil
+    self._status_fn = nil
     self._last_loot_scan = 0
     self._kd_cache = setmetatable({}, {__mode = "k"})
 
@@ -258,6 +268,7 @@ function esp:SetLootRoot(fn) self._loot_root_getter = fn end
 function esp:SetLootWorth(fn) self._loot_worth_getter = fn end
 function esp:SetLootProvider(fn) self._loot_provider = fn end
 function esp:SetLootAnchor(fn) self._loot_anchor_getter = fn end
+function esp:SetStatusResolver(fn) self._status_fn = fn end
 function esp:SetProfile(name)
     local patch = PROFILE_STYLES[tostring(name)]
     if not patch then return false end
@@ -294,6 +305,7 @@ function esp:_create_entry(subject, is_npc)
             distance    = new_drawing("Text", { Center = true, Visible = false, ZIndex = 4 }),
             weapon      = new_drawing("Text", { Center = true, Visible = false, ZIndex = 4 }),
             kd          = new_drawing("Text", { Center = false, Visible = false, ZIndex = 4 }),
+            status      = new_drawing("Text", { Center = true, Visible = false, ZIndex = 4 }),
             hp_outline  = new_drawing("Line", { Visible = false, ZIndex = 2 }),
             hp_text     = new_drawing("Text", { Center = false, Visible = false, ZIndex = 4 }),
             arrow       = new_drawing("Triangle", { Filled = true, Visible = false, ZIndex = 3, Transparency = 0 }),
@@ -544,7 +556,10 @@ function esp:_project_corners(cf, size)
             if sp.Y > max_y then max_y = sp.Y end
         end
     end
-    if front_count < 3 or not any_on then return nil end
+    if front_count < 8 or not any_on then return nil end
+    local raw_w = max_x - min_x
+    local raw_h = max_y - min_y
+    if raw_w > raw_h * 4 then return nil end
     local margin = 64
     min_x = math.clamp(min_x, -margin, vp.X + margin)
     min_y = math.clamp(min_y, -margin, vp.Y + margin)
@@ -576,6 +591,15 @@ local function lerp_color(c1, c2, t)
     return Color3.new(c1.R + (c2.R - c1.R) * t, c1.G + (c2.G - c1.G) * t, c1.B + (c2.B - c1.B) * t)
 end
 
+local function set_line(line, ax, ay, bx, by, color, th, tr)
+    line.From = Vector2.new(ax, ay)
+    line.To = Vector2.new(bx, by)
+    line.Color = color
+    line.Thickness = th
+    line.Transparency = tr
+    line.Visible = true
+end
+
 function esp:_draw_hp(entry, pos, sz, hp, max_hp, alpha)
     local h = self.style.health
     if not h.enabled or max_hp <= 0 then
@@ -600,6 +624,19 @@ function esp:_draw_hp(entry, pos, sz, hp, max_hp, alpha)
     ob.Transparency = trans_a
     ob.Visible = true
 
+    local cols = entry.hp_cols
+    if not cols then
+        cols = {}
+        entry.hp_cols = cols
+    end
+    if entry.hp_ct ~= h.color_top or entry.hp_cb ~= h.color_bot then
+        entry.hp_ct = h.color_top
+        entry.hp_cb = h.color_bot
+        for i = 1, HP_SEGMENTS do
+            cols[i] = lerp_color(h.color_top, h.color_bot, (i - 0.5) / HP_SEGMENTS)
+        end
+    end
+
     local seg_count = HP_SEGMENTS
     local seg_h = bar_h / seg_count
     for i = 1, seg_count do
@@ -619,7 +656,7 @@ function esp:_draw_hp(entry, pos, sz, hp, max_hp, alpha)
                 seg.From = Vector2.new(x, draw_from)
                 seg.To = Vector2.new(x, draw_to + 1)
                 seg.Thickness = h.thickness
-                seg.Color = lerp_color(h.color_top, h.color_bot, rel)
+                seg.Color = cols[i]
                 seg.Transparency = trans_a
                 seg.Visible = true
             end
@@ -628,7 +665,12 @@ function esp:_draw_hp(entry, pos, sz, hp, max_hp, alpha)
 
     if h.show_text then
         local tx = entry.objs.hp_text
-        tx.Text = tostring(math.floor(hp)) .. "/" .. tostring(math.floor(max_hp))
+        local ihp, imax = math.floor(hp), math.floor(max_hp)
+        if entry.hp_v ~= ihp or entry.hp_mv ~= imax then
+            entry.hp_v = ihp
+            entry.hp_mv = imax
+            tx.Text = ihp .. "/" .. imax
+        end
         tx.Size = h.text_size
         tx.Font = h.text_font
         tx.Color = Color3.new(1,1,1)
@@ -703,7 +745,7 @@ end
 function esp:_draw_text_stack(entry, pos, sz, model, hum, dist, is_visible, alpha)
     local trans = alpha or 1
     if entry.lod_vfar then
-        for _, key in ipairs({ "name", "displayname", "distance", "weapon", "kd" }) do
+        for _, key in ipairs({ "name", "displayname", "distance", "weapon", "kd", "status" }) do
             local obj = entry.objs[key]
             if obj then obj.Visible = false end
         end
@@ -721,7 +763,10 @@ function esp:_draw_text_stack(entry, pos, sz, model, hum, dist, is_visible, alph
         n.Outline = self.style.name.outline
         n.OutlineColor = self.style.name.outline_color
         n.Transparency = trans
-        do local it = stack_take() it.kind = "text" it.d = n it.w = 0 it.h = n.Size it.ord = self.style.name.order or 1 stack_push(valid_slot(self.style.name.slot, "top-center"), it) end
+        local nh = n.Size
+        local b = n.TextBounds
+        if b and b.Y and b.Y > nh then nh = b.Y end
+        do local it = stack_take() it.kind = "text" it.d = n it.w = 0 it.h = nh it.ord = self.style.name.order or 1 stack_push(valid_slot(self.style.name.slot, "top-center"), it) end
     else
         entry.objs.name.Visible = false
     end
@@ -787,6 +832,26 @@ function esp:_draw_text_stack(entry, pos, sz, model, hum, dist, is_visible, alph
         entry.objs.kd.Visible = false
     end
 
+    local stc = self.style.status
+    if stc and stc.enabled and not far and self._status_fn and not entry.is_npc then
+        local st = entry.objs.status
+        local ok, tag = pcall(self._status_fn, entry.subject)
+        if ok and tag and tag ~= "" and tag ~= "Neutral" then
+            st.Text = tag
+            st.Size = stc.size or 12
+            st.Font = stc.font or 2
+            st.Color = self.style.status_colors[tag] or self.style.status_colors.Neutral
+            st.Outline = stc.outline ~= false
+            st.OutlineColor = stc.outline_color or Color3.new(0, 0, 0)
+            st.Transparency = trans
+            do local it = stack_take() it.kind = "text" it.d = st it.w = 0 it.h = st.Size it.ord = stc.order or 7 stack_push(valid_slot(stc.slot, "bottom-center"), it) end
+        else
+            st.Visible = false
+        end
+    else
+        entry.objs.status.Visible = false
+    end
+
     local wic = self.style.weapon_icon
     local wi_slot = wic and wic.slot and valid_slot(wic.slot, nil)
     if wic and wic.enabled and wi_slot and entry.icon then
@@ -841,14 +906,14 @@ function esp:_draw_text_stack(entry, pos, sz, model, hum, dist, is_visible, alph
         entry._icon_slot_active = false
     end
 
-    for _, items in pairs(groups) do
+    for _, items in pairs(stack_groups) do
         table.sort(items, function(a, b) return (a.ord or 99) < (b.ord or 99) end)
     end
 
-    self:_layout_slots(pos, sz, groups)
+    self:_layout_slots(pos, sz)
 end
 
-function esp:_layout_slots(pos, sz, groups)
+function esp:_layout_slots(pos, sz)
     local left = pos.X
     local right = pos.X + sz.X
     local top = pos.Y
@@ -873,7 +938,7 @@ function esp:_layout_slots(pos, sz, groups)
                         it.d.Position = Vector2.new(base_x - w, y)
                     else
                         it.d.Center = true
-                        it.d.Position = Vector2.new(base_x, y)
+                        it.d.Position = Vector2.new(math.floor(base_x + 0.5), y)
                     end
                     it.d.Visible = true
                 elseif it.kind == "icon" then
@@ -892,7 +957,7 @@ function esp:_layout_slots(pos, sz, groups)
                         it.d.Position = Vector2.new(base_x - w, y)
                     else
                         it.d.Center = true
-                        it.d.Position = Vector2.new(base_x, y)
+                        it.d.Position = Vector2.new(math.floor(base_x + 0.5), y)
                     end
                     it.d.Visible = true
                 elseif it.kind == "icon" then
@@ -1008,13 +1073,26 @@ function esp:_draw_box(entry, pos, sz, is_visible, alpha, model)
             local fx, fy = math.floor(pos.X + 0.5), math.floor(pos.Y + 0.5)
             local fw = math.floor(sz.X + 0.5)
             local n = math.clamp(math.floor(sz.Y / 6), 5, FILL_STRIP_COUNT)
+            local cols = entry.fill_cols
+            if not cols then
+                cols = {}
+                entry.fill_cols = cols
+            end
+            if entry.fill_ct ~= fc_top or entry.fill_cb ~= fc_bot or entry.fill_cn ~= n then
+                entry.fill_ct = fc_top
+                entry.fill_cb = fc_bot
+                entry.fill_cn = n
+                for i = 1, n do
+                    cols[i] = lerp_color(fc_top, fc_bot, (i - 0.5) / n)
+                end
+            end
             local prev = 0
             for i = 1, n do
                 local edge = math.floor(sz.Y * i / n + 0.5)
                 local strip = entry.fill_strips[i]
                 strip.Position = Vector2.new(fx, fy + prev)
                 strip.Size = Vector2.new(fw, edge - prev)
-                strip.Color = lerp_color(fc_top, fc_bot, (i - 0.5) / n)
+                strip.Color = cols[i]
                 strip.Transparency = self.style.box_fill.transparency * a
                 strip.Visible = true
                 prev = edge
@@ -1041,22 +1119,22 @@ function esp:_draw_box(entry, pos, sz, is_visible, alpha, model)
         local left, top = pos.X, pos.Y
         local right, bottom = left + sz.X, top + sz.Y
         local cut_x, cut_y = math.max(sz.X * 0.25, 4), math.max(sz.Y * 0.2, 4)
-        local segments = {
-            {Vector2.new(left, top), Vector2.new(left + cut_x, top)}, {Vector2.new(left, top), Vector2.new(left, top + cut_y)},
-            {Vector2.new(right, top), Vector2.new(right - cut_x, top)}, {Vector2.new(right, top), Vector2.new(right, top + cut_y)},
-            {Vector2.new(left, bottom), Vector2.new(left + cut_x, bottom)}, {Vector2.new(left, bottom), Vector2.new(left, bottom - cut_y)},
-            {Vector2.new(right, bottom), Vector2.new(right - cut_x, bottom)}, {Vector2.new(right, bottom), Vector2.new(right, bottom - cut_y)},
-        }
+        local lx1, ly1 = left + cut_x, top + cut_y
+        local rx1, ry1 = right - cut_x, top + cut_y
+        local lx2, ly2 = left + cut_x, bottom - cut_y
+        local rx2 = right - cut_x
         local color = self:_get_color(self.style.box.color, is_visible, false)
-        for i, segment in ipairs(segments) do
-            local line = entry.box_lines[i]
-            line.From = segment[1]
-            line.To = segment[2]
-            line.Color = color
-            line.Thickness = self.style.box.thickness
-            line.Transparency = self.style.box.transparency * a
-            line.Visible = true
-        end
+        local lines = entry.box_lines
+        local th = self.style.box.thickness
+        local tr = self.style.box.transparency * a
+        set_line(lines[1], left, top, lx1, top, color, th, tr)
+        set_line(lines[2], left, top, left, ly1, color, th, tr)
+        set_line(lines[3], right, top, rx1, top, color, th, tr)
+        set_line(lines[4], right, top, right, ry1, color, th, tr)
+        set_line(lines[5], left, bottom, lx2, bottom, color, th, tr)
+        set_line(lines[6], left, bottom, left, ly2, color, th, tr)
+        set_line(lines[7], right, bottom, rx2, bottom, color, th, tr)
+        set_line(lines[8], right, bottom, right, ly2, color, th, tr)
         return
     end
     if box_type == "3d" and self.style.box.enabled and model then
@@ -1172,21 +1250,33 @@ function esp:_draw_skeleton(entry, model, alpha)
         return
     end
     self:_ensure_skel(entry)
-    for i, pair in ipairs(skeleton_bones) do
-        local ln = entry.skel_lines[i]
-        if ln then
+    local parts = entry.skel_parts
+    if not parts or entry.skel_model ~= model then
+        parts = {}
+        entry.skel_parts = parts
+        entry.skel_model = model
+        for i, pair in ipairs(skeleton_bones) do
             local a = model:FindFirstChild(pair[1])
             local b = model:FindFirstChild(pair[2])
             if a and b and a:IsA("BasePart") and b:IsA("BasePart") then
+                parts[i * 2 - 1] = a
+                parts[i * 2] = b
+            end
+        end
+    end
+    local th = self.style.skeleton.thickness
+    local col = self.style.skeleton.color
+    local tr = alpha or 1
+    for i = 1, SKELETON_BONES_N do
+        local ln = entry.skel_lines[i]
+        if ln then
+            local a = parts[i * 2 - 1]
+            local b = parts[i * 2]
+            if a and b and a.Parent and b.Parent then
                 local sa, oa = wtvp(a.Position)
                 local sb, ob = wtvp(b.Position)
                 if oa and ob then
-                    ln.From = Vector2.new(sa.X, sa.Y)
-                    ln.To = Vector2.new(sb.X, sb.Y)
-                    ln.Thickness = self.style.skeleton.thickness
-                    ln.Color = self.style.skeleton.color
-                    ln.Transparency = alpha or 1
-                    ln.Visible = true
+                    set_line(ln, sa.X, sa.Y, sb.X, sb.Y, col, th, tr)
                 else
                     ln.Visible = false
                 end
@@ -1379,10 +1469,16 @@ function esp:_update_entry(entry, dt)
     else
         local ok, bb_cf, bb_size = pcall(model.GetBoundingBox, model)
         if not ok or not bb_size then self:_hide_entry(entry); return end
-        if bb_size.X > 12 or bb_size.Y > 14 or bb_size.Z > 12 then
-            self:_hide_entry(entry); return
-        end
         cf, size = bb_cf, bb_size
+        if size.X > 12 or size.Z > 12 or size.Y > 14 then
+            local head = model:FindFirstChild("Head")
+            local root = model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("UpperTorso") or model:FindFirstChild("Torso")
+            if not head or not root then self:_hide_entry(entry); return end
+            local top = head.Position.Y + (head.Size and head.Size.Y * 0.5 or 0.6)
+            local bot = root.Position.Y - 3
+            cf = CFrame.new(root.Position.X, (top + bot) * 0.5, root.Position.Z)
+            size = Vector3.new(3, math.max(top - bot, 4), 3)
+        end
     end
     local pos, sz = self:_project_corners(cf, size)
     if not pos then
